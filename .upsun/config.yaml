@@ -65,4 +65,41 @@ applications:
                 commands:
                     start: croncape php-session-clean
 
-        
+tasks:
+  myagent:
+    source:
+      root: /agent
+    type: nodejs:24
+    container_profile: "HIGH_MEMORY"
+    mounts:
+      "/.local": {source: storage, source_path: "opencode-data"}
+      "/.config/opencode": {source: storage, source_path: "opencode-config"}
+      "/.agents": {source: storage, source_path: "opencode-agents"}
+      "/.opencode": {source: storage, source_path: "opencode-source"}
+    dependencies:
+      nodejs:
+        opencode-ai: "*" # OpenCode
+        upsun: "*"       # Upsun CLI
+    run:
+      command: node agent.js
+      timeout: 3600
+    authorizations: # allow the task to access the environment API (read-only)
+      - type: env
+        action: view
+    variables:
+      env:
+        OPENCODE_THEME: "opencode"
+        HOME: "/app"
+    hooks:
+      build: |
+        set -ex
+
+        echo "Install Upsun Skills..."
+        npx skills add https://github.com/upsun/ai --skill upsun -g -y
+        echo "Upsun Skills installed at $PLATFORM_APP_DIR/node_modules/.bin/upsun-mcp"
+      deploy: |
+        # Generate OpenCode config with the correct MCP server URL and API token
+        envsubst < /app/opencode.json > /app/.config/opencode/opencode.json
+
+    relationships:
+      app: "app:http"

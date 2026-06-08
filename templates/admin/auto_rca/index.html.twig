@@ -1,0 +1,78 @@
+{% extends 'admin/layout.html.twig' %}
+
+{% block body_id 'admin_auto_rca' %}
+
+{% block main %}
+    <h1><twig:ux:icon name="tabler:bug"/> Auto-RCA — Test Panel</h1>
+
+    <p class="text-muted mb-4">
+        Use these actions to verify the Auto-RCA pipeline end-to-end without waiting for a real production error.
+    </p>
+
+    {% for label, messages in app.flashes %}
+        {% for message in messages %}
+            <div class="alert alert-{{ label }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endfor %}
+
+    <div class="row g-4">
+
+        {# ── Option A: simulate via KernelEvents::EXCEPTION ─────────────────── #}
+        <div class="col-md-6">
+            <div class="card h-100 border-warning">
+                <div class="card-header bg-warning-subtle">
+                    <twig:ux:icon name="tabler:flame"/> Simulate via KernelEvents::EXCEPTION
+                </div>
+                <div class="card-body">
+                    <p>Throws a <code>RuntimeException</code> so the full <code>AutoRcaSubscriber</code> pipeline fires — signature, throttle, idempotency checks included.</p>
+                    <p class="text-muted small">
+                        <twig:ux:icon name="tabler:info-circle"/>
+                        Guard 1 applies: the task container is only spawned when
+                        <code>PLATFORM_ENVIRONMENT_TYPE=production</code>.<br>
+                        Set it in <code>.env.local</code> to test the full flow locally.
+                    </p>
+                </div>
+                <div class="card-footer">
+                    <form method="post" action="{{ path('admin_auto_rca_simulate') }}">
+                        <input type="hidden" name="_token" value="{{ csrf_token('auto_rca_simulate') }}">
+                        <button type="submit" class="btn btn-warning"
+                                onclick="return confirm('This will throw a 500 error. Continue?')">
+                            <twig:ux:icon name="tabler:player-play"/> Throw 500 error
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        {# ── Option B: direct spawn, bypasses env guard ──────────────────────── #}
+        <div class="col-md-6">
+            <div class="card h-100 border-danger">
+                <div class="card-header bg-danger-subtle">
+                    <twig:ux:icon name="tabler:rocket"/> Direct spawn (bypasses env guard)
+                </div>
+                <div class="card-body">
+                    <p>Calls <code>tasksContainer→run()</code> directly with a fake incident payload. Works in any environment — useful when <code>PLATFORM_ENVIRONMENT_TYPE</code> is not <code>production</code>.</p>
+                    <p class="text-muted small">
+                        <twig:ux:icon name="tabler:info-circle"/>
+                        Requires <code>UPSUN_API_TOKEN</code> to be set and the task
+                        <code>{{ app.request.server.get('UPSUN_RCA_TASK_ID', 'opencode-rca') }}</code>
+                        to exist in <code>.upsun/config.yaml</code>.
+                    </p>
+                </div>
+                <div class="card-footer">
+                    <form method="post" action="{{ path('admin_auto_rca_trigger') }}">
+                        <input type="hidden" name="_token" value="{{ csrf_token('auto_rca_trigger') }}">
+                        <button type="submit" class="btn btn-danger"
+                                onclick="return confirm('This will spawn the real RCA task container on Upsun. Continue?')">
+                            <twig:ux:icon name="tabler:rocket"/> Spawn task container
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+{% endblock %}
