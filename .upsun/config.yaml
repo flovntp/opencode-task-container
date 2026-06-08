@@ -40,7 +40,10 @@ applications:
             "/var/cache": { source: instance, source_path: var/cache }
             "/var/share": { source: storage, source_path: var/share }
             "/data": { source: storage, source_path: "data" }
-
+            "/.local": {source: storage, source_path: "opencode-data"}
+            "/.config/opencode": {source: storage, source_path: "opencode-config"}
+            "/.agents": {source: storage, source_path: "opencode-agents"}
+            "/.opencode": {source: storage, source_path: "opencode-source"}
         hooks:
             build: |
                 set -x -e
@@ -71,11 +74,6 @@ tasks:
       root: /agent
     type: nodejs:24
     container_profile: "HIGH_MEMORY"
-    mounts:
-      "/.local": {source: storage, source_path: "opencode-data"}
-      "/.config/opencode": {source: storage, source_path: "opencode-config"}
-      "/.agents": {source: storage, source_path: "opencode-agents"}
-      "/.opencode": {source: storage, source_path: "opencode-source"}
     dependencies:
       nodejs:
         opencode-ai: "*" # OpenCode
