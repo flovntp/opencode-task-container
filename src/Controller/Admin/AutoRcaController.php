@@ -55,9 +55,10 @@ final class AutoRcaController extends AbstractController
             ));
         } catch (ApiException $e) {
             $this->addFlash('danger', sprintf(
-                'Upsun API rejected the task run (HTTP %d): %s — body: %s',
+                'Upsun API rejected the task run (HTTP %d%s): %s — body: %s',
                 $e->getCode(),
-                $e->getMessage(),
+                $e->getApiTitle() !== null ? ' '.$e->getApiTitle() : '',
+                $e->getApiMessage() ?? $e->getMessage(),
                 (string) $e->getResponseBody(),
             ));
         } catch (\Throwable $e) {

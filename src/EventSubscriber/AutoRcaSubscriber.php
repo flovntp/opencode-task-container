@@ -112,6 +112,10 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         } catch (ApiException $e) {
             $this->logger->error('AutoRCA: Upsun API rejected the task run.', $context + [
                 'http_status'   => $e->getCode(),
+                'api_status'    => $e->getApiStatus(),
+                'api_title'     => $e->getApiTitle(),
+                'api_message'   => $e->getApiMessage(),
+                'api_code'      => $e->getApiCode(),
                 'error'         => $e->getMessage(),
                 'response_body' => $e->getResponseBody(),
             ]);

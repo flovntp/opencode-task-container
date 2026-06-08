@@ -8840,12 +8840,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/upsun/upsun-sdk-php.git",
-                "reference": "93a38872981519eb3d6ac8ea8b39121b8dfc9a4c"
+                "reference": "f72a63fb96268db237e1f889c2813f054a43b7ca"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/upsun/upsun-sdk-php/zipball/93a38872981519eb3d6ac8ea8b39121b8dfc9a4c",
-                "reference": "93a38872981519eb3d6ac8ea8b39121b8dfc9a4c",
+                "url": "https://api.github.com/repos/upsun/upsun-sdk-php/zipball/f72a63fb96268db237e1f889c2813f054a43b7ca",
+                "reference": "f72a63fb96268db237e1f889c2813f054a43b7ca",
                 "shasum": ""
             },
             "require": {
@@ -9029,7 +9029,7 @@
                 "source": "https://github.com/upsun/upsun-sdk-php/tree/add-missing-api-call",
                 "issues": "https://github.com/upsun/upsun-sdk-php/issues"
             },
-            "time": "2026-06-08T15:05:57+00:00"
+            "time": "2026-06-08T18:38:27+00:00"
         }
     ],
     "packages-dev": [
