@@ -93,7 +93,7 @@ tasks:
         set -ex
 
         echo "Install Upsun Skills..."
-        npx skills add https://github.com/upsun/ai --skill upsun -g -y
+        npx skills add https://github.com/upsun/ai --skill upsun -y
         echo "Upsun Skills installed at $PLATFORM_APP_DIR/node_modules/.bin/upsun-mcp"
       deploy: |
         # Generate OpenCode config with the correct MCP server URL and API token
