@@ -120,6 +120,10 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
                 projectId: $this->upsunProjectId,
                 environmentId: $this->upsunEnvironmentId,
                 taskId: $this->upsunRcaTaskId,
+                variables: [
+                    'INCIDENT_JSON' => ['value' => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR)],
+                    'INCIDENT_SIGNATURE' => ['value' => $signature],
+                ],
             );
 
             $this->logger->info('AutoRCA: task container spawned.', [
