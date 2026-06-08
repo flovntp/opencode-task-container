@@ -23,6 +23,8 @@ applications:
                 - xsl
 
         variables:
+            env:
+                IS_PRODUCTION: "true"
             php:
                 opcache.preload: config/preload.php
 

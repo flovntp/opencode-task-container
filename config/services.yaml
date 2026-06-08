@@ -39,4 +39,4 @@ services:
             $upsunProjectId:     '%env(PLATFORM_PROJECT)%'
             $upsunEnvironmentId: '%env(PLATFORM_BRANCH)%'
             $upsunRcaTaskId:     '%env(UPSUN_RCA_TASK_ID)%'
-            $appEnvType:         '%env(PLATFORM_ENVIRONMENT_TYPE)%'
+            $isProduction:       '%env(bool:IS_PRODUCTION)%'
