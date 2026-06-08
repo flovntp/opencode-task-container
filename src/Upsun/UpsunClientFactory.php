@@ -2,24 +2,14 @@
 
 namespace App\Upsun;
 
-use Http\Discovery\Psr17FactoryDiscovery;
 use Http\Discovery\Psr18ClientDiscovery;
-use Upsun\Api\ApiConfiguration;
-use Upsun\Api\TaskApi;
-use Upsun\Core\OAuthProvider;
+use Upsun\UpsunClient;
 use Upsun\UpsunConfig;
 
 /**
- * Builds an AppUpsunClient and injects the TasksContainerTask high-level wrapper.
- *
- * Wire in services.yaml:
- *   App\Upsun\UpsunClientFactory:
- *       arguments:
- *           $apiToken: '%env(UPSUN_API_TOKEN)%'
- *
- * Consume via:
- *   $client = $factory->create();
- *   $client->tasksContainer->run($projectId, $environmentId, $taskId);
+ * Builds a UpsunClient, wiring env-vars and PSR-18 HTTP client discovery.
+ * Kept as a Symfony service factory because Psr18ClientDiscovery::find()
+ * is a static call that cannot be expressed in services.yaml.
  */
 final class UpsunClientFactory
 {
@@ -30,7 +20,7 @@ final class UpsunClientFactory
     ) {
     }
 
-    public function create(): AppUpsunClient
+    public function create(): UpsunClient
     {
         $config = new UpsunConfig(
             base_url: $this->baseUrl,
@@ -39,24 +29,7 @@ final class UpsunClientFactory
         );
 
         $httpClient = Psr18ClientDiscovery::find();
-        $requestFactory = Psr17FactoryDiscovery::findRequestFactory();
 
-        $client = new AppUpsunClient($config, $httpClient);
-
-        // Inject the TasksContainerTask that the SDK does not yet expose natively.
-        $apiConfig = ApiConfiguration::getDefaultConfiguration()->setHost($this->baseUrl);
-        $auth = new OAuthProvider(
-            httpClient: $httpClient,
-            requestFactory: $requestFactory,
-            tokenEndpoint: $this->authUrl . '/oauth2/token',
-            clientId: 'sdk-php-client-id',
-            clientSecret: $this->apiToken,
-        );
-
-        $taskApi = new TaskApi($auth, $httpClient, $requestFactory, $apiConfig);
-
-        $client->tasksContainer = new TasksContainerTask($client, $taskApi);
-
-        return $client;
+        return new UpsunClient($config, $httpClient);
     }
 }

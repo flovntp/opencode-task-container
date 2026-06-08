@@ -78,14 +78,10 @@ final class AutoRcaController extends AbstractController
             $environmentId = $_ENV['PLATFORM_ENVIRONMENT'] ?? $_SERVER['PLATFORM_ENVIRONMENT'] ?? 'main';
             $taskId = $_ENV['UPSUN_RCA_TASK_ID'] ?? $_SERVER['UPSUN_RCA_TASK_ID'] ?? 'opencode-rca';
 
-            $factory->create()->tasksContainer->run(
+            $factory->create()->taskContainers->run(
                 projectId: $projectId,
                 environmentId: $environmentId,
                 taskId: $taskId,
-                variables: [
-                    'INCIDENT_JSON' => ['value' => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR)],
-                    'INCIDENT_SIGNATURE' => ['value' => $fakeSignature],
-                ],
             );
 
             $this->addFlash('success', sprintf(

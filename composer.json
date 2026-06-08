@@ -45,7 +45,7 @@
         "twig/extra-bundle": "^3.3",
         "twig/intl-extra": "^3.3",
         "twig/markdown-extra": "^3.3",
-        "upsun/upsun-sdk-php": "^0.7.0"
+        "upsun/upsun-sdk-php": "dev-add-missing-api-call"
     },
     "require-dev": {
         "dama/doctrine-test-bundle": "^8.0.2",
@@ -118,5 +118,10 @@
             "allow-contrib": true,
             "require": "8.0.*"
         }
-    }
+    },
+    "repositories": [{
+        "name": "upsun-sdk-php",
+        "type": "vcs",
+        "url": "https://github.com/upsun/upsun-sdk-php"
+    }]
 }
