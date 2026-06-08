@@ -10,6 +10,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Upsun\Api\ApiException;
 
 #[Route('/admin/auto-rca')]
 #[IsGranted(User::ROLE_ADMIN)]
@@ -34,17 +35,38 @@ final class AutoRcaController extends AbstractController
     {
         $this->validateCsrf('auto_rca_trigger', $request);
 
+        $projectId     = $this->resolveEnv('PLATFORM_PROJECT');
+        $environmentId = $this->resolveEnv('PLATFORM_BRANCH', 'main');
+        $taskId        = $this->resolveEnv('UPSUN_RCA_TASK_ID', 'opencode-rca');
+
         try {
             $factory->create()->taskContainers->run(
-                projectId: $this->resolveEnv('PLATFORM_PROJECT'),
-                environmentId: $this->resolveEnv('PLATFORM_BRANCH', 'main'),
-                taskId: $this->resolveEnv('UPSUN_RCA_TASK_ID', 'opencode-rca'),
+                projectId: $projectId,
+                environmentId: $environmentId,
+                taskId: $taskId,
                 variables: $this->buildIncidentVariables($request),
             );
 
-            $this->addFlash('success', 'Task container spawned successfully.');
+            $this->addFlash('success', sprintf(
+                'Task container "%s" spawned on "%s" (project %s).',
+                $taskId,
+                $environmentId,
+                $projectId !== '' ? $projectId : '<missing PLATFORM_PROJECT>',
+            ));
+        } catch (ApiException $e) {
+            $this->addFlash('danger', sprintf(
+                'Upsun API rejected the task run (HTTP %d %s): %s — body: %s',
+                $e->getCode(),
+                (string) $e->getApiTitle(),
+                (string) ($e->getApiMessage() ?? $e->getMessage()),
+                (string) $e->getResponseBody(),
+            ));
         } catch (\Throwable $e) {
-            $this->addFlash('danger', 'Failed to spawn task container: '.$e->getMessage());
+            $this->addFlash('danger', sprintf(
+                'Failed to spawn task container [%s]: %s',
+                $e::class,
+                $e->getMessage(),
+            ));
         }
 
         return $this->redirectToRoute('admin_auto_rca');

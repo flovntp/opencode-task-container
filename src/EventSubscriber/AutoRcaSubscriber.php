@@ -9,6 +9,7 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\KernelEvents;
+use Upsun\Api\ApiException;
 
 final class AutoRcaSubscriber implements EventSubscriberInterface
 {
@@ -85,8 +86,17 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
     {
         $incident = $this->buildIncidentPayload($throwable, $event, $signature);
 
+        $context = [
+            'signature'   => $signature,
+            'project'     => $this->upsunProjectId,
+            'environment' => $this->upsunEnvironmentId,
+            'task'        => $this->upsunRcaTaskId,
+        ];
+
+        $this->logger->info('AutoRCA: spawning task container…', $context);
+
         try {
-            $this->upsunClientFactory->create()->taskContainers->run(
+            $response = $this->upsunClientFactory->create()->taskContainers->run(
                 projectId: $this->upsunProjectId,
                 environmentId: $this->upsunEnvironmentId,
                 taskId: $this->upsunRcaTaskId,
@@ -96,10 +106,20 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
                 ],
             );
 
-            $this->logger->info('AutoRCA: task container spawned.', ['signature' => $signature]);
+            $this->logger->info('AutoRCA: task container spawned successfully.', $context + [
+                'response' => method_exists($response, '__toString') ? (string) $response : null,
+            ]);
+        } catch (ApiException $e) {
+            $this->logger->error('AutoRCA: Upsun API rejected the task run.', $context + [
+                'http_status'   => $e->getCode(),
+                'api_status'    => $e->getApiStatus(),
+                'api_title'     => $e->getApiTitle(),
+                'api_message'   => $e->getApiMessage(),
+                'response_body' => $e->getResponseBody(),
+            ]);
         } catch (\Throwable $e) {
-            $this->logger->error('AutoRCA: failed to spawn task container.', [
-                'signature' => $signature,
+            $this->logger->error('AutoRCA: failed to spawn task container.', $context + [
+                'exception' => $e::class,
                 'error'     => $e->getMessage(),
             ]);
         }

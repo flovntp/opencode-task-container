@@ -2,12 +2,8 @@
     "$schema": "https://opencode.ai/config.json",
     "mcp": {
         "upsun": {
-            "type": "remote",
-            "url": "https://mcp.upsun.com/mcp",
-            "headers": {
-                "upsun-api-token": "${UPSUN_CLI_TOKEN}",
-                "enable-write": "true"
-            },
+            "type": "local",
+            "command": ["upsun-mcp"],
             "enabled": true
         }
     }
