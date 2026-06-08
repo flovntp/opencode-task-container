@@ -86,8 +86,8 @@ final class AutoRcaController extends AbstractController
         ];
 
         return [
-            'INCIDENT_JSON'      => ['value' => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR)],
-            'INCIDENT_SIGNATURE' => ['value' => $signature],
+            'env:INCIDENT_JSON'      => ['value' => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR)],
+            'env:INCIDENT_SIGNATURE' => ['value' => $signature],
         ];
     }
 }

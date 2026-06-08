@@ -73,7 +73,7 @@ applications:
 tasks:
   myagent:
     source:
-      root: /
+      root: /agent
     type: nodejs:24
     container_profile: "HIGH_MEMORY"
     dependencies:
