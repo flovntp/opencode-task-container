@@ -95,7 +95,21 @@ final class TrafficSimulationController extends AbstractController
         $peak = $inFlightAtStart;
         $accumulator = 'seed';
 
-        $this->assertWithinThreshold($inFlightAtStart, $threshold, 0.0);
+        // Brief settling window (500ms) so simultaneous arrivals don't fail at
+        // once: each request reads the live in-flight counter from APCu and
+        // only throws if overload *persists* past the window. Without this, N
+        // concurrent requests all increment via apcu_inc before any finally
+        // block can decrement, causing N-1 of them to fail at elapsed=0s.
+        $current = (int) (apcu_fetch(self::INFLIGHT_KEY) ?: 0);
+        $peak = max($peak, $current);
+        $settleDeadline = microtime(true) + 0.5;
+        while (microtime(true) < $settleDeadline && $current > $threshold) {
+            usleep(10_000);
+            $current = (int) (apcu_fetch(self::INFLIGHT_KEY) ?: 0);
+            $peak = max($peak, $current);
+        }
+
+        $this->assertWithinThreshold($current, $threshold, round(microtime(true) - $start, 2));
 
         while (microtime(true) < $deadline) {
             // CPU-intensive busy work so the request shows up as CPU usage. The
