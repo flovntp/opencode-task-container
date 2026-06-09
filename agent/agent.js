@@ -262,5 +262,17 @@ function runOpenCode(prompt, cwd) {
 
 const data = readIncident();
 console.log(`Starting Auto-RCA for signature ${data.signature}`);
+
+// Short-circuit test incidents: they are triggered manually from the admin panel
+// and do not represent real exceptions. Skipping the expensive OpenCode analysis
+// saves compute and avoids opening spurious pull requests.
+if (data.incident.test === true) {
+  console.log(
+    `[Auto-RCA] Incident ${data.signature} is a test trigger — skipping analysis. ` +
+    `Message: ${data.incident.exception?.message ?? 'n/a'}`,
+  );
+  process.exit(0);
+}
+
 const workspace = prepareWorkspace();
 runOpenCode(buildPrompt(data, workspace), workspace.cwd);
