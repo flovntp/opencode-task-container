@@ -43,9 +43,9 @@ final class GitHubAppTokenMinter
 
     public function isConfigured(): bool
     {
-        return $this->appId !== ''
-            && $this->installationId !== ''
-            && $this->privateKey !== '';
+        return '' !== $this->appId
+            && '' !== $this->installationId
+            && '' !== $this->privateKey;
     }
 
     /**
@@ -60,22 +60,22 @@ final class GitHubAppTokenMinter
         try {
             $response = $this->httpClient->request(
                 'POST',
-                sprintf('%s/app/installations/%s/access_tokens', self::API_BASE, $this->installationId),
+                \sprintf('%s/app/installations/%s/access_tokens', self::API_BASE, $this->installationId),
                 [
                     'headers' => [
-                        'Authorization'        => 'Bearer '.$this->buildJwt(),
-                        'Accept'               => 'application/vnd.github+json',
+                        'Authorization' => 'Bearer '.$this->buildJwt(),
+                        'Accept' => 'application/vnd.github+json',
                         'X-GitHub-Api-Version' => '2022-11-28',
                     ],
                     'json' => [
                         'repositories' => [$this->shortRepositoryName()],
-                        'permissions'  => [
-                            'contents'      => 'write',
+                        'permissions' => [
+                            'contents' => 'write',
                             'pull_requests' => 'write',
                             // Read CI status so OpenCode can watch the PR checks
                             // and fix failing GitHub Actions workflows.
-                            'checks'        => 'read',
-                            'actions'       => 'read',
+                            'checks' => 'read',
+                            'actions' => 'read',
                         ],
                     ],
                 ],
@@ -86,21 +86,21 @@ final class GitHubAppTokenMinter
             if (!isset($data['token'])) {
                 $this->logger->error('GitHubApp: installation token request rejected.', [
                     'status' => $response->getStatusCode(),
-                    'body'   => $data,
+                    'body' => $data,
                 ]);
 
                 return null;
             }
 
             return [
-                'token'      => (string) $data['token'],
+                'token' => (string) $data['token'],
                 'repository' => $this->repository,
                 'expires_at' => isset($data['expires_at']) ? (string) $data['expires_at'] : null,
             ];
         } catch (\Throwable $e) {
             $this->logger->error('GitHubApp: failed to mint installation token.', [
                 'exception' => $e::class,
-                'error'     => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
 
             return null;
@@ -140,7 +140,7 @@ final class GitHubAppTokenMinter
         $pem = base64_decode($this->privateKey, true) ?: $this->privateKey;
         $key = openssl_pkey_get_private($pem);
 
-        if ($key === false) {
+        if (false === $key) {
             throw new \RuntimeException('Invalid GitHub App private key.');
         }
 
