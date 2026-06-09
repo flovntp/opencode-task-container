@@ -125,6 +125,8 @@ final class AutoRcaController extends AbstractController
      * and line are not the result of a real exception. The line number is the
      * __LINE__ constant evaluated at the point where the "line" key is set.
      * The "trace_top5" is intentionally empty because no real stack trace exists.
+     *
+     * @return array{env: array<string, string>}
      */
     private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter): array
     {

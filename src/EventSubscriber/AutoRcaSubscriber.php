@@ -133,7 +133,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
             );
 
             $this->logger->info('AutoRCA: task container spawned successfully.', $context + [
-                'response' => method_exists($response, '__toString') ? (string) $response : null,
+                'response' => (string) $response,
             ]);
 
             // Mark the incident as handled so identical exceptions don't spawn
@@ -177,6 +177,9 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         ]));
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function buildIncidentPayload(\Throwable $throwable, ExceptionEvent $event, string $signature): array
     {
         $request = $event->getRequest();
@@ -190,7 +193,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
                 'line' => $throwable->getLine(),
                 'trace_top5' => \array_slice(
                     array_map(
-                        static fn (array $frame): string => ($frame['file'] ?? '?').':'.($frame['line'] ?? '?').' '.($frame['function'] ?? ''),
+                        static fn (array $frame): string => ($frame['file'] ?? '?').':'.($frame['line'] ?? '?').' '.$frame['function'],
                         $throwable->getTrace(),
                     ),
                     0, 5,
