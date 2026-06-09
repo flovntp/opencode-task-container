@@ -28,7 +28,15 @@ final class AutoRcaController extends AbstractController
     {
         $this->validateCsrf('auto_rca_simulate', $request);
 
-        throw new \RuntimeException('[Auto-RCA test] Simulated 500 error triggered from the admin panel.');
+        // Include a unique token so each click yields a distinct exception
+        // signature; otherwise the AutoRcaSubscriber dedupe (done/attempts cache)
+        // would suppress every trigger after the first one. The leading letter
+        // keeps the token from being collapsed by the signature's number
+        // normalisation (\b\d+\b -> N).
+        throw new \RuntimeException(sprintf(
+            '[Auto-RCA test] Simulated 500 error triggered from the admin panel (ref r%s).',
+            bin2hex(random_bytes(5)),
+        ));
     }
 
     #[Route('/trigger', name: 'admin_auto_rca_trigger', methods: ['POST'])]
