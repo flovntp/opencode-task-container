@@ -34,6 +34,13 @@ services:
         arguments:
             $apiToken: '%env(UPSUN_API_TOKEN)%'
 
+    App\Github\GitHubAppTokenMinter:
+        arguments:
+            $appId:          '%env(GITHUB_APP_ID)%'
+            $installationId: '%env(GITHUB_APP_INSTALLATION_ID)%'
+            $privateKey:     '%env(GITHUB_APP_PRIVATE_KEY)%'
+            $repository:     '%env(GITHUB_REPO)%'
+
     App\EventSubscriber\AutoRcaSubscriber:
         arguments:
             $upsunProjectId:     '%env(PLATFORM_PROJECT)%'

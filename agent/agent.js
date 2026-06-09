@@ -14,7 +14,7 @@
  * the prefix.
  */
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -50,8 +50,36 @@ function readIncident() {
   return { incident, signature: signature ?? incident.signature ?? 'unknown' };
 }
 
-function buildPrompt({ incident, signature }) {
+function buildPrompt({ incident, signature }, workspace) {
   const ex = incident.exception ?? {};
+  const shortSig = String(signature).slice(0, 12);
+
+  const tasks = [
+    'Your tasks:',
+    '1. Analyse the exception and identify the most likely root cause.',
+    '2. Inspect the relevant source files in this repository.',
+  ];
+
+  if (workspace.canOpenPr) {
+    tasks.push(
+      `3. Apply a minimal, focused fix on a new branch named "auto-rca/${shortSig}".`,
+      '4. Commit the change with a clear message, push the branch to "origin", and',
+      `   open a pull request against "${workspace.baseBranch}" describing the root`,
+      '   cause and the fix. The remote is already authenticated, so use plain git',
+      '   to push. To open the PR, call the GitHub REST API with the token in the',
+      '   $GITHUB_TOKEN environment variable, for example:',
+      `     curl -sS -X POST \\`,
+      `       -H "Authorization: Bearer $GITHUB_TOKEN" \\`,
+      `       -H "Accept: application/vnd.github+json" \\`,
+      `       https://api.github.com/repos/${workspace.repo}/pulls \\`,
+      `       -d '{"title":"<title>","head":"auto-rca/${shortSig}","base":"${workspace.baseBranch}","body":"<body>"}'`,
+    );
+  } else {
+    tasks.push(
+      '3. Propose a concrete fix and describe the root cause. (No GitHub token was',
+      '   provided, so do not attempt to push or open a pull request.)',
+    );
+  }
 
   return [
     'You are an automated Root-Cause-Analysis (RCA) agent running inside an Upsun task container.',
@@ -67,11 +95,60 @@ function buildPrompt({ incident, signature }) {
     'Full incident payload (JSON):',
     JSON.stringify(incident, null, 2),
     '',
-    'Your tasks:',
-    '1. Analyse the exception and identify the most likely root cause.',
-    '2. Inspect the relevant source files in this repository.',
-    '3. Propose a concrete fix and open a pull request describing the root cause.',
+    ...tasks,
   ].join('\n');
+}
+
+function git(args, options = {}) {
+  return spawnSync('git', args, { stdio: 'inherit', ...options });
+}
+
+/**
+ * Prepare the directory OpenCode will work in.
+ *
+ * When a short-lived GitHub token is provided (minted app-side per incident),
+ * clone the repository so OpenCode has a real git repo with an authenticated
+ * remote it can branch/commit/push. The token is injected through an HTTP
+ * `extraheader` (never embedded in the remote URL) to keep it out of logs and
+ * `git remote -v`. Without a token we fall back to analysing the deployed tree
+ * in /app (read-only, no PR).
+ *
+ * @returns {{cwd: string, repo: string, baseBranch: string, canOpenPr: boolean}}
+ */
+function prepareWorkspace() {
+  const token = process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPO;
+  const baseBranch = process.env.GITHUB_BASE_BRANCH || 'main';
+  const fallback = { cwd: '/app', repo: repo ?? '', baseBranch, canOpenPr: false };
+
+  if (!token || !repo) {
+    console.error('No GITHUB_TOKEN/GITHUB_REPO: analysing /app only (no pull request).');
+    return fallback;
+  }
+
+  const workdir = '/tmp/work';
+  fs.rmSync(workdir, { recursive: true, force: true });
+
+  const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+  const authHeader = `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`;
+
+  const clone = git([
+    '-c', authHeader,
+    'clone', '--depth', '50',
+    `https://github.com/${repo}.git`, workdir,
+  ]);
+
+  if (clone.status !== 0) {
+    console.error('git clone failed; falling back to /app (no pull request).');
+    return fallback;
+  }
+
+  // Persist auth for push, and set a commit identity.
+  git(['-C', workdir, 'config', 'http.https://github.com/.extraheader', `AUTHORIZATION: basic ${basic}`], { stdio: 'ignore' });
+  git(['-C', workdir, 'config', 'user.name', 'Upsun Auto-RCA']);
+  git(['-C', workdir, 'config', 'user.email', 'auto-rca@users.noreply.github.com']);
+
+  return { cwd: workdir, repo, baseBranch, canOpenPr: true };
 }
 
 function prepareOpenCodeEnv() {
@@ -131,12 +208,13 @@ function dumpOpenCodeLog(dataHome) {
   }
 }
 
-function runOpenCode(prompt) {
+function runOpenCode(prompt, cwd) {
   const env = prepareOpenCodeEnv();
 
   // Non-interactive OpenCode run; inherit stdio so logs stream to the task output.
   const child = spawn('opencode', ['run', prompt], {
     stdio: 'inherit',
+    cwd,
     env,
   });
 
@@ -156,4 +234,5 @@ function runOpenCode(prompt) {
 
 const data = readIncident();
 console.log(`Starting Auto-RCA for signature ${data.signature}`);
-runOpenCode(buildPrompt(data));
+const workspace = prepareWorkspace();
+runOpenCode(buildPrompt(data, workspace), workspace.cwd);

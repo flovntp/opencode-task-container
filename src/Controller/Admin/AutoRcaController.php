@@ -3,6 +3,7 @@
 namespace App\Controller\Admin;
 
 use App\Entity\User;
+use App\Github\GitHubAppTokenMinter;
 use App\Upsun\UpsunClientFactory;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -31,7 +32,7 @@ final class AutoRcaController extends AbstractController
     }
 
     #[Route('/trigger', name: 'admin_auto_rca_trigger', methods: ['POST'])]
-    public function triggerDirectly(Request $request, UpsunClientFactory $factory): RedirectResponse
+    public function triggerDirectly(Request $request, UpsunClientFactory $factory, GitHubAppTokenMinter $tokenMinter): RedirectResponse
     {
         $this->validateCsrf('auto_rca_trigger', $request);
 
@@ -44,7 +45,7 @@ final class AutoRcaController extends AbstractController
                 projectId: $projectId,
                 environmentId: $environmentId,
                 taskId: $taskId,
-                variables: $this->buildIncidentVariables($request),
+                variables: $this->buildIncidentVariables($request, $tokenMinter),
             );
 
             $this->addFlash('success', sprintf(
@@ -84,7 +85,7 @@ final class AutoRcaController extends AbstractController
         return getenv($name) ?: $default;
     }
 
-    private function buildIncidentVariables(Request $request): array
+    private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter): array
     {
         $signature = hash('sha256', 'admin-test-'.time());
 
@@ -107,11 +108,20 @@ final class AutoRcaController extends AbstractController
             'test'         => true,
         ];
 
-        return [
-            'env' => [
-                'INCIDENT_JSON'      => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
-                'INCIDENT_SIGNATURE' => $signature,
-            ],
+        $env = [
+            'INCIDENT_JSON'      => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
+            'INCIDENT_SIGNATURE' => $signature,
         ];
+
+        // Hand the task a short-lived, repo-scoped GitHub token so OpenCode can
+        // open a pull request. If minting is not configured/fails, the task
+        // still runs and simply skips the PR step.
+        $github = $tokenMinter->mintInstallationToken();
+        if ($github !== null) {
+            $env['GITHUB_TOKEN'] = $github['token'];
+            $env['GITHUB_REPO']  = $github['repository'];
+        }
+
+        return ['env' => $env];
     }
 }

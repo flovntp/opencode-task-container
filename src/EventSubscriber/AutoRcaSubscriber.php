@@ -2,6 +2,7 @@
 
 namespace App\EventSubscriber;
 
+use App\Github\GitHubAppTokenMinter;
 use App\Upsun\UpsunClientFactory;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
@@ -18,12 +19,13 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
 
     public function __construct(
         private readonly UpsunClientFactory $upsunClientFactory,
+        private readonly GitHubAppTokenMinter $tokenMinter,
         private readonly CacheItemPoolInterface $cache,
         private readonly LoggerInterface $logger,
         private readonly string $upsunProjectId,
         private readonly string $upsunEnvironmentId,
         private readonly string $upsunRcaTaskId,
-        private readonly bool $isProduction, 
+        private readonly bool $isProduction,
     ) {
     }
 
@@ -95,16 +97,26 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
 
         $this->logger->info('AutoRCA: spawning task container…', $context);
 
+        $env = [
+            'INCIDENT_JSON'      => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
+            'INCIDENT_SIGNATURE' => $signature,
+        ];
+
+        // Attach a short-lived, repo-scoped GitHub token so OpenCode can open a
+        // pull request. Minting failures are non-fatal: the task still runs.
+        $github = $this->tokenMinter->mintInstallationToken();
+        if ($github !== null) {
+            $env['GITHUB_TOKEN'] = $github['token'];
+            $env['GITHUB_REPO']  = $github['repository'];
+        }
+
         try {
             $response = $this->upsunClientFactory->create()->taskContainers->run(
                 projectId: $this->upsunProjectId,
                 environmentId: $this->upsunEnvironmentId,
                 taskId: $this->upsunRcaTaskId,
                 variables: [
-                    'env' => [
-                        'INCIDENT_JSON'      => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
-                        'INCIDENT_SIGNATURE' => $signature,
-                    ],
+                    'env' => $env,
                 ],
             );
 
