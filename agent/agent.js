@@ -172,6 +172,16 @@ function prepareOpenCodeEnv() {
     fs.mkdirSync(dir, { recursive: true });
   }
 
+  // OpenCode runs with cwd set to the freshly cloned repo (/tmp/work), so the
+  // MCP/skill binaries installed at build time under /app/node_modules/.bin
+  // (e.g. `upsun-mcp`) are no longer discoverable. Keep them on PATH so the
+  // upsun MCP server still starts regardless of the working directory.
+  const extraPath = '/app/node_modules/.bin';
+  const currentPath = process.env.PATH ?? '';
+  const mergedPath = currentPath.split(':').includes(extraPath)
+    ? currentPath
+    : `${extraPath}:${currentPath}`;
+
   // Seed the writable config dir with the bundled opencode.json (MCP setup).
   // The deploy hook only writes it into the app container's read-only
   // /app/.config/opencode, which this separate task container cannot use.
@@ -186,7 +196,7 @@ function prepareOpenCodeEnv() {
     console.error('Could not stage opencode.json config:', err.message);
   }
 
-  return { ...process.env, ...dirs };
+  return { ...process.env, ...dirs, PATH: mergedPath };
 }
 
 function dumpOpenCodeLog(dataHome) {
@@ -225,9 +235,9 @@ function runOpenCode(prompt, cwd) {
 
   child.on('exit', (code) => {
     console.log(`opencode exited with code ${code ?? 0}`);
-    if (code && code !== 0) {
-      dumpOpenCodeLog(env.XDG_DATA_HOME);
-    }
+    // Always surface the OpenCode log: a clean exit can still mean "did nothing"
+    // (e.g. no PR opened), and the log is the only window into what it decided.
+    dumpOpenCodeLog(env.XDG_DATA_HOME);
     process.exit(code ?? 0);
   });
 }
