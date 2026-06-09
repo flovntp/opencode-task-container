@@ -54,7 +54,13 @@ applications:
                 set -x -e
 
                 symfony-deploy
-
+        authorizations:
+            - type: task
+                resource: myagent
+                action: operate
+            - type: env
+                action: view
+        
         crons:
             security-check:
                 # Check that no security issues have been found for PHP packages deployed in production
