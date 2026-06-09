@@ -33,9 +33,11 @@ final class AutoRcaController extends AbstractController
         // would suppress every trigger after the first one. The leading letter
         // keeps the token from being collapsed by the signature's number
         // normalisation (\b\d+\b -> N).
+        $token = 'r'.bin2hex(random_bytes(5));
+
         throw new \RuntimeException(sprintf(
-            '[Auto-RCA test] Simulated 500 error triggered from the admin panel (ref r%s).',
-            bin2hex(random_bytes(5)),
+            '[Auto-RCA test] Simulated 500 error triggered from the admin panel (ref %s).',
+            $token,
         ));
     }
 
