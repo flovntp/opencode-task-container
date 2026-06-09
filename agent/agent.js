@@ -63,16 +63,22 @@ function buildPrompt({ incident, signature }, workspace) {
   if (workspace.canOpenPr) {
     tasks.push(
       `3. Apply a minimal, focused fix on a new branch named "auto-rca/${shortSig}".`,
+      '   You MUST always produce a change set, even if you are not fully certain of',
+      '   the root cause. If no obvious code bug exists (e.g. the exception was',
+      '   thrown deliberately), still open a PROPOSAL pull request: add defensive',
+      '   handling, a guard, a clarifying comment, or a short RCA note file, so the',
+      '   branch always has at least one committed change for a human to review.',
       '4. Commit the change with a clear message, push the branch to "origin", and',
-      `   open a pull request against "${workspace.baseBranch}" describing the root`,
-      '   cause and the fix. The remote is already authenticated, so use plain git',
-      '   to push. To open the PR, call the GitHub REST API with the token in the',
-      '   $GH_PR_TOKEN environment variable, for example:',
+      `   ALWAYS open a pull request against "${workspace.baseBranch}". Never finish`,
+      '   without opening the PR. Title it "[Auto-RCA] <summary>" and, in the body,',
+      '   describe the root cause, the proposed fix, and your confidence level. The',
+      '   remote is already authenticated, so use plain git to push. To open the PR,',
+      '   call the GitHub REST API with the token in the $GH_PR_TOKEN env variable:',
       `     curl -sS -X POST \\`,
       `       -H "Authorization: Bearer $GH_PR_TOKEN" \\`,
       `       -H "Accept: application/vnd.github+json" \\`,
       `       https://api.github.com/repos/${workspace.repo}/pulls \\`,
-      `       -d '{"title":"<title>","head":"auto-rca/${shortSig}","base":"${workspace.baseBranch}","body":"<body>"}'`,
+      `       -d '{"title":"[Auto-RCA] <summary>","head":"auto-rca/${shortSig}","base":"${workspace.baseBranch}","body":"<body>"}'`,
     );
   } else {
     tasks.push(
@@ -126,6 +132,8 @@ function prepareWorkspace() {
     return fallback;
   }
 
+  console.log(`Preparing workspace: cloning ${repo} (base ${baseBranch}) into /tmp/work.`);
+
   const workdir = '/tmp/work';
   fs.rmSync(workdir, { recursive: true, force: true });
 
@@ -138,10 +146,12 @@ function prepareWorkspace() {
     `https://github.com/${repo}.git`, workdir,
   ]);
 
-  if (clone.status !== 0) {
-    console.error('git clone failed; falling back to /app (no pull request).');
+  if (clone.status !== 0 || !fs.existsSync(path.join(workdir, '.git'))) {
+    console.error(`git clone failed (status ${clone.status}); falling back to /app (no pull request).`);
     return fallback;
   }
+
+  console.log(`Cloned ${repo} into ${workdir}.`);
 
   // Persist auth for push, and set a commit identity.
   git(['-C', workdir, 'config', 'http.https://github.com/.extraheader', `AUTHORIZATION: basic ${basic}`], { stdio: 'ignore' });
@@ -220,6 +230,14 @@ function dumpOpenCodeLog(dataHome) {
 
 function runOpenCode(prompt, cwd) {
   const env = prepareOpenCodeEnv();
+
+  // The task starts in /app, so process.env.PWD is /app. OpenCode resolves its
+  // project directory from $PWD rather than the real cwd, so without this it
+  // stays in /app and treats the freshly cloned /tmp/work as an *external*
+  // directory (every access is auto-rejected). Align $PWD with the spawn cwd.
+  env.PWD = cwd;
+
+  console.log(`Launching opencode in ${cwd}`);
 
   // Non-interactive OpenCode run; inherit stdio so logs stream to the task output.
   const child = spawn('opencode', ['run', prompt], {
