@@ -79,6 +79,20 @@ function buildPrompt({ incident, signature }, workspace) {
       `       -H "Accept: application/vnd.github+json" \\`,
       `       https://api.github.com/repos/${workspace.repo}/pulls \\`,
       `       -d '{"title":"[Auto-RCA] <summary>","head":"auto-rca/${shortSig}","base":"${workspace.baseBranch}","body":"<body>"}'`,
+      '5. After the PR is open, make the CI green. Poll the GitHub Actions checks',
+      '   for the head commit of your branch and fix any failing workflow before you',
+      '   finish. Use $GH_PR_TOKEN to query the status (the head SHA comes from',
+      '   `git rev-parse HEAD`):',
+      `     curl -sS -H "Authorization: Bearer $GH_PR_TOKEN" \\`,
+      `       -H "Accept: application/vnd.github+json" \\`,
+      `       https://api.github.com/repos/${workspace.repo}/commits/<sha>/check-runs`,
+      '   For every check whose conclusion is "failure", inspect its `output`',
+      '   (title/summary/annotations) and the failing run, reproduce the problem',
+      '   locally when possible (e.g. run the same lint/test command), apply a fix,',
+      '   then commit and push to the SAME branch. Re-poll until every check has',
+      '   conclusion "success" (allow a short wait between polls for runs to start).',
+      '   Stop after at most 5 fix/push iterations; if checks are still red, leave a',
+      '   PR comment summarising what is still failing and why.',
     );
   } else {
     tasks.push(

@@ -12,7 +12,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * runtime. For each incident we exchange it for an installation token that:
  *   - expires automatically (~1h),
  *   - is scoped to a single repository,
- *   - only carries `contents:write` + `pull_requests:write`.
+ *   - only carries `contents:write` + `pull_requests:write`, plus
+ *     `checks:read` + `actions:read` so the agent can watch the PR's CI.
  *
  * That token is the only GitHub credential ever handed to the task container,
  * which keeps the blast radius of a leak small and time-bounded.
@@ -62,6 +63,10 @@ final class GitHubAppTokenMinter
                         'permissions'  => [
                             'contents'      => 'write',
                             'pull_requests' => 'write',
+                            // Read CI status so OpenCode can watch the PR checks
+                            // and fix failing GitHub Actions workflows.
+                            'checks'        => 'read',
+                            'actions'       => 'read',
                         ],
                     ],
                 ],
