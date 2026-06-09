@@ -6188,16 +6188,16 @@
         },
         {
             "name": "symfony/polyfill-mbstring",
-            "version": "v1.38.1",
+            "version": "v1.38.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-mbstring.git",
-                "reference": "14c5439eec4ccff081ac14eca2dc57feb2a66d92"
+                "reference": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/14c5439eec4ccff081ac14eca2dc57feb2a66d92",
-                "reference": "14c5439eec4ccff081ac14eca2dc57feb2a66d92",
+                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6",
+                "reference": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6",
                 "shasum": ""
             },
             "require": {
@@ -6249,7 +6249,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.38.1"
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.38.2"
             },
             "funding": [
                 {
@@ -6269,7 +6269,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-05-26T12:51:13+00:00"
+            "time": "2026-05-27T06:59:30+00:00"
         },
         {
             "name": "symfony/polyfill-php85",
@@ -8840,12 +8840,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/upsun/upsun-sdk-php.git",
-                "reference": "f72a63fb96268db237e1f889c2813f054a43b7ca"
+                "reference": "0bf1517bb98f5e627a19c1f7a02b8ec67aa175d1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/upsun/upsun-sdk-php/zipball/f72a63fb96268db237e1f889c2813f054a43b7ca",
-                "reference": "f72a63fb96268db237e1f889c2813f054a43b7ca",
+                "url": "https://api.github.com/repos/upsun/upsun-sdk-php/zipball/0bf1517bb98f5e627a19c1f7a02b8ec67aa175d1",
+                "reference": "0bf1517bb98f5e627a19c1f7a02b8ec67aa175d1",
                 "shasum": ""
             },
             "require": {
@@ -9029,7 +9029,7 @@
                 "source": "https://github.com/upsun/upsun-sdk-php/tree/add-missing-api-call",
                 "issues": "https://github.com/upsun/upsun-sdk-php/issues"
             },
-            "time": "2026-06-08T18:38:27+00:00"
+            "time": "2026-06-09T07:22:20+00:00"
         }
     ],
     "packages-dev": [
