@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace App\Controller\Admin;
 
 use App\Entity\User;
@@ -35,10 +44,7 @@ final class AutoRcaController extends AbstractController
         // normalisation (\b\d+\b -> N).
         $token = 'r'.bin2hex(random_bytes(5));
 
-        throw new \RuntimeException(sprintf(
-            '[Auto-RCA test] Simulated 500 error triggered from the admin panel (ref %s).',
-            $token,
-        ));
+        throw new \RuntimeException(\sprintf('[Auto-RCA test] Simulated 500 error triggered from the admin panel (ref %s).', $token));
     }
 
     #[Route('/trigger', name: 'admin_auto_rca_trigger', methods: ['POST'])]
@@ -46,9 +52,9 @@ final class AutoRcaController extends AbstractController
     {
         $this->validateCsrf('auto_rca_trigger', $request);
 
-        $projectId     = $this->resolveEnv('PLATFORM_PROJECT');
+        $projectId = $this->resolveEnv('PLATFORM_PROJECT');
         $environmentId = $this->resolveEnv('PLATFORM_BRANCH', 'main');
-        $taskId        = $this->resolveEnv('UPSUN_RCA_TASK_ID', 'opencode-rca');
+        $taskId = $this->resolveEnv('UPSUN_RCA_TASK_ID', 'opencode-rca');
 
         try {
             $upsunClient->taskContainers->run(
@@ -58,22 +64,22 @@ final class AutoRcaController extends AbstractController
                 variables: $this->buildIncidentVariables($request, $tokenMinter),
             );
 
-            $this->addFlash('success', sprintf(
+            $this->addFlash('success', \sprintf(
                 'Task container "%s" spawned on "%s" (project %s).',
                 $taskId,
                 $environmentId,
-                $projectId !== '' ? $projectId : '<missing PLATFORM_PROJECT>',
+                '' !== $projectId ? $projectId : '<missing PLATFORM_PROJECT>',
             ));
         } catch (ApiException $e) {
-            $this->addFlash('danger', sprintf(
+            $this->addFlash('danger', \sprintf(
                 'Upsun API rejected the task run (HTTP %d%s): %s — body: %s',
                 $e->getCode(),
-                $e->getApiTitle() !== null ? ' '.$e->getApiTitle() : '',
+                null !== $e->getApiTitle() ? ' '.$e->getApiTitle() : '',
                 $e->getApiMessage() ?? $e->getMessage(),
                 (string) $e->getResponseBody(),
             ));
         } catch (\Throwable $e) {
-            $this->addFlash('danger', sprintf(
+            $this->addFlash('danger', \sprintf(
                 'Failed to spawn task container [%s]: %s',
                 $e::class,
                 $e->getMessage(),
@@ -95,31 +101,34 @@ final class AutoRcaController extends AbstractController
         return getenv($name) ?: $default;
     }
 
+    /**
+     * @return array{env: array<string, string|null>}
+     */
     private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter): array
     {
         $signature = hash('sha256', 'admin-test-'.time());
 
         $incident = [
-            'signature'    => $signature,
-            'exception'    => [
-                'class'      => \RuntimeException::class,
-                'message'    => '[Auto-RCA test] Manually triggered from admin panel.',
-                'file'       => __FILE__,
-                'line'       => __LINE__,
+            'signature' => $signature,
+            'exception' => [
+                'class' => \RuntimeException::class,
+                'message' => '[Auto-RCA test] Manually triggered from admin panel.',
+                'file' => __FILE__,
+                'line' => __LINE__,
                 'trace_top5' => [],
             ],
-            'request'      => [
-                'method'     => $request->getMethod(),
-                'route'      => 'admin_auto_rca_trigger',
-                'path'       => $request->getPathInfo(),
+            'request' => [
+                'method' => $request->getMethod(),
+                'route' => 'admin_auto_rca_trigger',
+                'path' => $request->getPathInfo(),
                 'user_agent' => substr((string) $request->headers->get('User-Agent', ''), 0, 200),
             ],
-            'triggered_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
-            'test'         => true,
+            'triggered_at' => new \DateTimeImmutable()->format(\DateTimeInterface::ATOM),
+            'test' => true,
         ];
 
         $env = [
-            'INCIDENT_JSON'      => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
+            'INCIDENT_JSON' => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
             'INCIDENT_SIGNATURE' => $signature,
         ];
 
@@ -127,7 +136,7 @@ final class AutoRcaController extends AbstractController
         // open a pull request. If minting is not configured/fails, the task
         // still runs and simply skips the PR step.
         $github = $tokenMinter->mintInstallationToken();
-        if ($github !== null) {
+        if (null !== $github) {
             // Use a custom name (NOT GITHUB_TOKEN/GH_TOKEN): OpenCode's
             // github-copilot LLM provider authenticates with GITHUB_TOKEN, and a
             // GitHub App server-to-server token is rejected by that endpoint.
