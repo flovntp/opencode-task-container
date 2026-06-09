@@ -42,7 +42,11 @@ applications:
             "/var/cache": { source: instance, source_path: var/cache }
             "/var/share": { source: storage, source_path: var/share }
             "/data": { source: storage, source_path: "data" }
-            "/.local": {source: storage, source_path: "opencode-data"}
+            # opencode stores a SQLite DB under /.local/share/opencode; SQLite
+            # needs POSIX file locking, which the distributed "storage" mount
+            # does not support ("unable to open database file"). A local
+            # "instance" mount provides proper locking.
+            "/.local": {source: instance, source_path: "opencode-data"}
             "/.config/opencode": {source: storage, source_path: "opencode-config"}
             "/.agents": {source: storage, source_path: "opencode-agents"}
             "/.opencode": {source: storage, source_path: "opencode-source"}
