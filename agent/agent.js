@@ -67,9 +67,9 @@ function buildPrompt({ incident, signature }, workspace) {
       `   open a pull request against "${workspace.baseBranch}" describing the root`,
       '   cause and the fix. The remote is already authenticated, so use plain git',
       '   to push. To open the PR, call the GitHub REST API with the token in the',
-      '   $GITHUB_TOKEN environment variable, for example:',
+      '   $GH_PR_TOKEN environment variable, for example:',
       `     curl -sS -X POST \\`,
-      `       -H "Authorization: Bearer $GITHUB_TOKEN" \\`,
+      `       -H "Authorization: Bearer $GH_PR_TOKEN" \\`,
       `       -H "Accept: application/vnd.github+json" \\`,
       `       https://api.github.com/repos/${workspace.repo}/pulls \\`,
       `       -d '{"title":"<title>","head":"auto-rca/${shortSig}","base":"${workspace.baseBranch}","body":"<body>"}'`,
@@ -116,13 +116,13 @@ function git(args, options = {}) {
  * @returns {{cwd: string, repo: string, baseBranch: string, canOpenPr: boolean}}
  */
 function prepareWorkspace() {
-  const token = process.env.GITHUB_TOKEN;
+  const token = process.env.GH_PR_TOKEN;
   const repo = process.env.GITHUB_REPO;
   const baseBranch = process.env.GITHUB_BASE_BRANCH || 'main';
   const fallback = { cwd: '/app', repo: repo ?? '', baseBranch, canOpenPr: false };
 
   if (!token || !repo) {
-    console.error('No GITHUB_TOKEN/GITHUB_REPO: analysing /app only (no pull request).');
+    console.error('No GH_PR_TOKEN/GITHUB_REPO: analysing /app only (no pull request).');
     return fallback;
   }
 

@@ -118,8 +118,11 @@ final class AutoRcaController extends AbstractController
         // still runs and simply skips the PR step.
         $github = $tokenMinter->mintInstallationToken();
         if ($github !== null) {
-            $env['GITHUB_TOKEN'] = $github['token'];
-            $env['GITHUB_REPO']  = $github['repository'];
+            // Use a custom name (NOT GITHUB_TOKEN/GH_TOKEN): OpenCode's
+            // github-copilot LLM provider authenticates with GITHUB_TOKEN, and a
+            // GitHub App server-to-server token is rejected by that endpoint.
+            $env['GH_PR_TOKEN'] = $github['token'];
+            $env['GITHUB_REPO'] = $github['repository'];
         }
 
         return ['env' => $env];

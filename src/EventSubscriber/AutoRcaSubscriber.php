@@ -106,8 +106,11 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         // pull request. Minting failures are non-fatal: the task still runs.
         $github = $this->tokenMinter->mintInstallationToken();
         if ($github !== null) {
-            $env['GITHUB_TOKEN'] = $github['token'];
-            $env['GITHUB_REPO']  = $github['repository'];
+            // Use a custom name (NOT GITHUB_TOKEN/GH_TOKEN): OpenCode's
+            // github-copilot LLM provider authenticates with GITHUB_TOKEN, and a
+            // GitHub App server-to-server token is rejected by that endpoint.
+            $env['GH_PR_TOKEN'] = $github['token'];
+            $env['GITHUB_REPO'] = $github['repository'];
         }
 
         try {
