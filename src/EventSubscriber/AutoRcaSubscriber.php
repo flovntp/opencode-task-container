@@ -126,6 +126,14 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
             $this->logger->info('AutoRCA: task container spawned successfully.', $context + [
                 'response' => method_exists($response, '__toString') ? (string) $response : null,
             ]);
+
+            // Mark the incident as handled so identical exceptions don't spawn
+            // additional task containers (and open duplicate pull requests).
+            $this->cache->save(
+                $this->cache->getItem('auto_rca.done.'.$signature)
+                    ->set(true)
+                    ->expiresAfter(self::CACHE_TTL),
+            );
         } catch (ApiException $e) {
             $this->logger->error('AutoRCA: Upsun API rejected the task run.', $context + [
                 'http_status'   => $e->getCode(),
