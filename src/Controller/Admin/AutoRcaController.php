@@ -5,10 +5,12 @@ namespace App\Controller\Admin;
 use App\Entity\User;
 use App\Github\GitHubAppTokenMinter;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Upsun\Api\ApiException;
 use Upsun\UpsunClient;
@@ -21,6 +23,26 @@ final class AutoRcaController extends AbstractController
     public function index(): Response
     {
         return $this->render('admin/auto_rca/index.html.twig');
+    }
+
+    #[Route('/traffic', name: 'admin_auto_rca_traffic', methods: ['GET'])]
+    public function trafficPanel(
+        #[Autowire('%env(TRAFFIC_SIM_TOKEN)%')]
+        string $simulationToken,
+        #[Autowire('%env(int:TRAFFIC_SIM_MAX_CONCURRENCY)%')]
+        int $maxConcurrency,
+        #[Autowire('%env(int:TRAFFIC_SIM_DURATION)%')]
+        int $processingSeconds,
+    ): Response {
+        return $this->render('admin/auto_rca/traffic.html.twig', [
+            'endpoint_url'       => $this->generateUrl(
+                'traffic_simulation_overload',
+                referenceType: UrlGeneratorInterface::ABSOLUTE_URL,
+            ),
+            'token_configured'   => '' !== $simulationToken,
+            'max_concurrency'    => $maxConcurrency,
+            'processing_seconds' => $processingSeconds,
+        ]);
     }
 
     #[Route('/simulate-exception', name: 'admin_auto_rca_simulate', methods: ['POST'])]

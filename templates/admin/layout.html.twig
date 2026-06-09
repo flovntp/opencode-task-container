@@ -24,6 +24,11 @@
         </a>
     </li>
     <li class="nav-item">
+        <a class="nav-link {{ _route == 'admin_auto_rca_traffic' ? 'active' }}" href="{{ path('admin_auto_rca_traffic') }}">
+            <twig:ux:icon name="tabler:activity-heartbeat"/> Traffic load
+        </a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" href="{{ path('blog_index') }}">
             <twig:ux:icon name="tabler:home"/> {{ 'menu.back_to_blog'|trans }}
         </a>

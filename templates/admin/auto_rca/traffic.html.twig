@@ -1,0 +1,67 @@
+{% extends 'admin/layout.html.twig' %}
+
+{% block body_id 'admin_auto_rca_traffic' %}
+
+{% block main %}
+    <h1><twig:ux:icon name="tabler:activity-heartbeat"/> Auto-RCA — Traffic overload</h1>
+
+    <p class="text-muted mb-4">
+        This endpoint runs a CPU-intensive task of at least
+        <strong>{{ processing_seconds }}s</strong> and fails fast with a
+        <strong>500</strong> error once too many requests are processed
+        concurrently. The 500 is caught by <code>AutoRcaSubscriber</code>, which
+        spawns the RCA task container. Use it to generate real load and verify
+        that the agent can analyse the observability logs and consumed resources.
+    </p>
+
+    <div class="card border-danger mb-4">
+        <div class="card-header bg-danger-subtle">
+            <twig:ux:icon name="tabler:flame"/> Public load endpoint
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-3">URL</dt>
+                <dd class="col-sm-9"><code>{{ endpoint_url }}</code></dd>
+
+                <dt class="col-sm-3">Auth</dt>
+                <dd class="col-sm-9">
+                    Secret token via <code>?key=…</code> query parameter or
+                    <code>X-Sim-Token</code> header.
+                    {% if token_configured %}
+                        <span class="badge text-bg-success">token configured</span>
+                    {% else %}
+                        <span class="badge text-bg-warning">token NOT set — endpoint returns 403</span>
+                    {% endif %}
+                </dd>
+
+                <dt class="col-sm-3">Concurrency threshold</dt>
+                <dd class="col-sm-9"><code>{{ max_concurrency }}</code> in-flight requests (env <code>TRAFFIC_SIM_MAX_CONCURRENCY</code>)</dd>
+
+                <dt class="col-sm-3">Processing time</dt>
+                <dd class="col-sm-9"><code>{{ processing_seconds }}s</code> CPU loop (env <code>TRAFFIC_SIM_DURATION</code>)</dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        <twig:ux:icon name="tabler:info-circle"/>
+        Keep <code>TRAFFIC_SIM_MAX_CONCURRENCY</code> below the number of PHP-FPM
+        workers. If FPM saturates first, excess requests get a
+        <code>502/504</code> from the web server before reaching PHP, so the
+        application-level 500 (and the RCA pipeline) never fires.
+        The subscriber only runs when <code>IS_PRODUCTION=true</code>.
+    </div>
+
+    <h2 class="h5">Generate traffic locally</h2>
+    <p>Run the bundled script from the project root:</p>
+    <pre class="bg-dark text-light p-3 rounded"><code>./simulate-traffic.sh \
+  "{{ endpoint_url }}" \
+  "&lt;your-token&gt;" \
+  10 \
+  60</code></pre>
+    <p class="text-muted small">
+        Arguments: <code>URL</code>, <code>TOKEN</code>,
+        <code>CONCURRENCY</code> (parallel requests), <code>DURATION</code> (seconds).
+        Set <code>CONCURRENCY</code> above the threshold to trigger 500s.
+    </p>
+{% endblock %}

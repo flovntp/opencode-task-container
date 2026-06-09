@@ -74,5 +74,26 @@
             </div>
         </div>
 
+        {# ── Option C: load-driven 500 under high concurrency ────────────────── #}
+        <div class="col-md-6">
+            <div class="card h-100 border-info">
+                <div class="card-header bg-info-subtle">
+                    <twig:ux:icon name="tabler:activity-heartbeat"/> Traffic overload (external load)
+                </div>
+                <div class="card-body">
+                    <p>A public, token-gated endpoint that burns CPU for ~20s and throws a <code>500</code> once concurrency exceeds a threshold — driven by an external load script to test log/resource analysis.</p>
+                    <p class="text-muted small">
+                        <twig:ux:icon name="tabler:info-circle"/>
+                        Goes through the full <code>AutoRcaSubscriber</code> pipeline (production guard included).
+                    </p>
+                </div>
+                <div class="card-footer">
+                    <a href="{{ path('admin_auto_rca_traffic') }}" class="btn btn-info">
+                        <twig:ux:icon name="tabler:arrow-right"/> Open traffic panel
+                    </a>
+                </div>
+            </div>
+        </div>
+
     </div>
 {% endblock %}
