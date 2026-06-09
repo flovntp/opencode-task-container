@@ -56,10 +56,10 @@ applications:
                 symfony-deploy
         authorizations:
             - type: task
-                resource: myagent
-                action: operate
+              resource: myagent
+              action: operate
             - type: env
-                action: view
+              action: view
         
         crons:
             security-check:
