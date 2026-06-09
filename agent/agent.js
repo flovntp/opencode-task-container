@@ -75,21 +75,38 @@ function buildPrompt({ incident, signature }) {
 }
 
 function prepareOpenCodeEnv() {
-  // opencode keeps a SQLite database under XDG_DATA_HOME/opencode. SQLite needs
-  // a local filesystem with POSIX locking, which distributed "storage" mounts
-  // do not provide ("unable to open database file"). Point the data/cache/state
-  // dirs at a guaranteed-writable local path (/tmp) so the DB can always be
-  // opened, regardless of how mounts are configured. Config is left at its
-  // default ($HOME/.config/opencode) where the deploy hook writes opencode.json.
+  // opencode keeps a SQLite database under XDG_DATA_HOME/opencode and also
+  // writes housekeeping files (e.g. a .gitignore) into its config dir on
+  // startup. SQLite needs POSIX locking (distributed "storage" mounts do not
+  // provide it -> "unable to open database file"), and the deployed app tree is
+  // read-only inside the task container (-> "EROFS ... /app/.config/opencode").
+  // Point every XDG dir at a guaranteed-writable local path (/tmp) so opencode
+  // can always read/write, regardless of how mounts are configured.
   const base = '/tmp/opencode';
+  const configHome = path.join(base, 'config');
   const dirs = {
     XDG_DATA_HOME: path.join(base, 'data'),
     XDG_CACHE_HOME: path.join(base, 'cache'),
     XDG_STATE_HOME: path.join(base, 'state'),
+    XDG_CONFIG_HOME: configHome,
   };
 
   for (const dir of Object.values(dirs)) {
     fs.mkdirSync(dir, { recursive: true });
+  }
+
+  // Seed the writable config dir with the bundled opencode.json (MCP setup).
+  // The deploy hook only writes it into the app container's read-only
+  // /app/.config/opencode, which this separate task container cannot use.
+  try {
+    const configDir = path.join(configHome, 'opencode');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.copyFileSync(
+      path.join(__dirname, 'opencode.json'),
+      path.join(configDir, 'opencode.json'),
+    );
+  } catch (err) {
+    console.error('Could not stage opencode.json config:', err.message);
   }
 
   return { ...process.env, ...dirs };
