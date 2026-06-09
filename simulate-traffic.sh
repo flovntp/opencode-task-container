@@ -21,6 +21,10 @@
 #                (TRAFFIC_SIM_MAX_CONCURRENCY) to provoke 500s. Default: 10.
 #   DURATION     How long to keep sending traffic, in seconds. Default: 60.
 #
+# Live tuning: append query params to the URL to override server defaults for a
+# run (the token is still required), e.g. to force a 500 with minimal overlap:
+#   .../simulate-traffic-exception?threshold=1&seconds=15
+#
 # The script is POSIX-friendly and works with the stock bash 3.2 on macOS.
 # Press Ctrl-C to stop early; in-flight workers are terminated.
 
@@ -56,7 +60,7 @@ cleanup() {
 trap 'echo; echo "Stopping…"; cleanup; summarize; rm -rf "$WORKDIR"; exit 0' INT TERM
 
 # A single worker: hammer the endpoint sequentially until the deadline, logging
-# each response's HTTP status to its own counter file.
+# each response's HTTP status to its own counter file and echoing non-200s live.
 worker() {
   local id="$1" deadline="$2" out="$WORKDIR/worker-$1.log"
   : >"$out"
@@ -66,7 +70,14 @@ worker() {
       -H "X-Sim-Token: ${TOKEN}" \
       -w '%{http_code}' \
       "$REQ_URL" 2>/dev/null)"
-    echo "${code:-000}" >>"$out"
+    code="${code:-000}"
+    echo "$code" >>"$out"
+    # Surface 500s (and other non-200s) as they happen.
+    case "$code" in
+      200) ;;
+      000) printf '[w%-2s] 000 (no response: edge timeout / FPM saturation)\n' "$id" ;;
+      *)   printf '[w%-2s] HTTP %s\n' "$id" "$code" ;;
+    esac
   done
 }
 

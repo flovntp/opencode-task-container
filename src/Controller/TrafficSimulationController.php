@@ -56,10 +56,15 @@ final class TrafficSimulationController extends AbstractController
             throw new \RuntimeException('Traffic simulation requires the APCu extension to be enabled.');
         }
 
+        // Optional live tuning (token already required): ?threshold= and ?seconds=
+        // let us calibrate against the real PHP-FPM worker count without a redeploy.
+        $threshold = max(1, $request->query->getInt('threshold', $this->maxConcurrency));
+        $duration  = min(25, max(1, $request->query->getInt('seconds', $this->processingSeconds)));
+
         $inFlight = (int) apcu_inc(self::INFLIGHT_KEY);
 
         try {
-            return $this->process($inFlight);
+            return $this->process($inFlight, $threshold, $duration);
         } finally {
             apcu_dec(self::INFLIGHT_KEY);
         }
@@ -79,14 +84,13 @@ final class TrafficSimulationController extends AbstractController
     }
 
     /**
-     * Burns CPU for at least $processingSeconds, periodically re-checking the
+     * Burns CPU for at least $duration seconds, periodically re-checking the
      * in-flight counter. Throws once the concurrency threshold is exceeded.
      */
-    private function process(int $inFlightAtStart): Response
+    private function process(int $inFlightAtStart, int $threshold, int $duration): Response
     {
-        $threshold = max(1, $this->maxConcurrency);
-        $duration  = max(1, $this->processingSeconds);
         $deadline  = microtime(true) + $duration;
+        $start = microtime(true);
         $iterations = 0;
         $peak = $inFlightAtStart;
         $accumulator = 'seed';
@@ -104,7 +108,7 @@ final class TrafficSimulationController extends AbstractController
             $current = (int) (apcu_fetch(self::INFLIGHT_KEY) ?: 0);
             $peak = max($peak, $current);
 
-            $this->assertWithinThreshold($current, $threshold, round(microtime(true) - ($deadline - $duration), 2));
+            $this->assertWithinThreshold($current, $threshold, round(microtime(true) - $start, 2));
         }
 
         return new JsonResponse([
