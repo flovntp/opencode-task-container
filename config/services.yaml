@@ -30,9 +30,15 @@ services:
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
 
-    App\Upsun\UpsunClientFactory:
+    # Register the Upsun SDK as plain services and inject UpsunClient directly.
+    # The SDK auto-discovers a PSR-18 HTTP client, so no factory is needed.
+    Upsun\UpsunConfig:
         arguments:
             $apiToken: '%env(UPSUN_API_TOKEN)%'
+
+    Upsun\UpsunClient:
+        arguments:
+            $upsunConfig: '@Upsun\UpsunConfig'
 
     App\Github\GitHubAppTokenMinter:
         arguments:

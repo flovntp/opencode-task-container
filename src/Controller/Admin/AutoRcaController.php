@@ -4,7 +4,6 @@ namespace App\Controller\Admin;
 
 use App\Entity\User;
 use App\Github\GitHubAppTokenMinter;
-use App\Upsun\UpsunClientFactory;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -12,6 +11,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Upsun\Api\ApiException;
+use Upsun\UpsunClient;
 
 #[Route('/admin/auto-rca')]
 #[IsGranted(User::ROLE_ADMIN)]
@@ -32,7 +32,7 @@ final class AutoRcaController extends AbstractController
     }
 
     #[Route('/trigger', name: 'admin_auto_rca_trigger', methods: ['POST'])]
-    public function triggerDirectly(Request $request, UpsunClientFactory $factory, GitHubAppTokenMinter $tokenMinter): RedirectResponse
+    public function triggerDirectly(Request $request, UpsunClient $upsunClient, GitHubAppTokenMinter $tokenMinter): RedirectResponse
     {
         $this->validateCsrf('auto_rca_trigger', $request);
 
@@ -41,7 +41,7 @@ final class AutoRcaController extends AbstractController
         $taskId        = $this->resolveEnv('UPSUN_RCA_TASK_ID', 'opencode-rca');
 
         try {
-            $factory->create()->taskContainers->run(
+            $upsunClient->taskContainers->run(
                 projectId: $projectId,
                 environmentId: $environmentId,
                 taskId: $taskId,

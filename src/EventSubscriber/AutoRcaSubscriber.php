@@ -3,7 +3,6 @@
 namespace App\EventSubscriber;
 
 use App\Github\GitHubAppTokenMinter;
-use App\Upsun\UpsunClientFactory;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -11,6 +10,7 @@ use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Upsun\Api\ApiException;
+use Upsun\UpsunClient;
 
 final class AutoRcaSubscriber implements EventSubscriberInterface
 {
@@ -18,7 +18,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
     private const int CACHE_TTL = 604_800;
 
     public function __construct(
-        private readonly UpsunClientFactory $upsunClientFactory,
+        private readonly UpsunClient $upsunClient,
         private readonly GitHubAppTokenMinter $tokenMinter,
         private readonly CacheItemPoolInterface $cache,
         private readonly LoggerInterface $logger,
@@ -114,7 +114,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         }
 
         try {
-            $response = $this->upsunClientFactory->create()->taskContainers->run(
+            $response = $this->upsunClient->taskContainers->run(
                 projectId: $this->upsunProjectId,
                 environmentId: $this->upsunEnvironmentId,
                 taskId: $this->upsunRcaTaskId,
