@@ -60,14 +60,31 @@ final class TrafficSimulationController extends AbstractController
         // let us calibrate against the real PHP-FPM worker count without a redeploy.
         $threshold = max(1, $request->query->getInt('threshold', $this->maxConcurrency));
         $duration  = min(25, max(1, $request->query->getInt('seconds', $this->processingSeconds)));
+        $runToken  = $this->resolveRunToken($request);
 
         $inFlight = (int) apcu_inc(self::INFLIGHT_KEY);
 
         try {
-            return $this->process($inFlight, $threshold, $duration);
+            return $this->process($inFlight, $threshold, $duration, $runToken);
         } finally {
             apcu_dec(self::INFLIGHT_KEY);
         }
+    }
+
+    /**
+     * A per-run identifier woven into the thrown exception message. The
+     * AutoRcaSubscriber normalises digits to "N" when computing its dedupe
+     * signature, so the token is restricted to letters: that way every load-test
+     * run (a fresh token) is treated as a NEW incident and re-triggers the RCA
+     * pipeline, while all 500s WITHIN one run share a signature and spawn a
+     * single task.
+     */
+    private function resolveRunToken(Request $request): string
+    {
+        $raw = (string) $request->query->get('run', '');
+        $clean = preg_replace('/[^a-zA-Z]/', '', $raw) ?? '';
+
+        return '' !== $clean ? substr($clean, 0, 32) : 'baseline';
     }
 
     private function isTokenValid(Request $request): bool
@@ -87,7 +104,7 @@ final class TrafficSimulationController extends AbstractController
      * Burns CPU for at least $duration seconds, periodically re-checking the
      * in-flight counter. Throws once the concurrency threshold is exceeded.
      */
-    private function process(int $inFlightAtStart, int $threshold, int $duration): Response
+    private function process(int $inFlightAtStart, int $threshold, int $duration, string $runToken): Response
     {
         $deadline  = microtime(true) + $duration;
         $start = microtime(true);
@@ -95,7 +112,7 @@ final class TrafficSimulationController extends AbstractController
         $peak = $inFlightAtStart;
         $accumulator = 'seed';
 
-        $this->assertWithinThreshold($inFlightAtStart, $threshold, 0.0);
+        $this->assertWithinThreshold($inFlightAtStart, $threshold, 0.0, $runToken);
 
         while (microtime(true) < $deadline) {
             // CPU-intensive busy work so the request shows up as CPU usage. The
@@ -108,7 +125,7 @@ final class TrafficSimulationController extends AbstractController
             $current = (int) (apcu_fetch(self::INFLIGHT_KEY) ?: 0);
             $peak = max($peak, $current);
 
-            $this->assertWithinThreshold($current, $threshold, round(microtime(true) - $start, 2));
+            $this->assertWithinThreshold($current, $threshold, round(microtime(true) - $start, 2), $runToken);
         }
 
         return new JsonResponse([
@@ -117,20 +134,23 @@ final class TrafficSimulationController extends AbstractController
             'iterations'       => $iterations,
             'peak_concurrency' => $peak,
             'threshold'        => $threshold,
+            'run'              => $runToken,
         ]);
     }
 
-    private function assertWithinThreshold(int $current, int $threshold, float $elapsed): void
+    private function assertWithinThreshold(int $current, int $threshold, float $elapsed, string $runToken): void
     {
         if ($current <= $threshold) {
             return;
         }
 
-        // Stable message → stable AutoRcaSubscriber signature (the digits are
-        // normalised to "N" by the subscriber), so a single RCA task is spawned.
+        // The run token (letters only) keeps the AutoRcaSubscriber signature
+        // stable within a run but distinct across runs, so the pipeline is
+        // re-triggerable while still spawning a single task per run.
         throw new \RuntimeException(sprintf(
-            '[Auto-RCA test] Traffic overload: %d concurrent requests exceeded the threshold of %d '
+            '[Auto-RCA test] Traffic overload on run %s: %d concurrent requests exceeded the threshold of %d '
             .'during slow processing (elapsed %ss). The endpoint shed load by failing fast.',
+            $runToken,
             $current,
             $threshold,
             $elapsed,

@@ -46,6 +46,17 @@ case "$URL" in
   *)    REQ_URL="${URL}?key=${TOKEN}" ;;
 esac
 
+# Fresh per-invocation run token (letters only, to survive the subscriber's
+# digit normalisation). A new token = a NEW Auto-RCA signature, so every run of
+# this script re-triggers the pipeline; within a run all 500s share it and spawn
+# a single task. Override with RUN=... in the environment if needed.
+RUN="${RUN:-$(LC_ALL=C tr -dc 'a-z' </dev/urandom 2>/dev/null | head -c 8)}"
+[ -n "$RUN" ] || RUN="run$$"
+case "$REQ_URL" in
+  *run=*) ;;
+  *) REQ_URL="${REQ_URL}&run=${RUN}" ;;
+esac
+
 # Temp dir for per-worker result counters.
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/simtraffic.XXXXXX")"
 PIDS=""
@@ -98,6 +109,7 @@ summarize() {
 }
 
 echo "Target      : $URL"
+echo "Run token   : $RUN"
 echo "Concurrency : $CONCURRENCY"
 echo "Duration    : ${DURATION}s"
 echo "Starting load… (Ctrl-C to stop)"
