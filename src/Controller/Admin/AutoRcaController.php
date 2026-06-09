@@ -5,6 +5,7 @@ namespace App\Controller\Admin;
 use App\Entity\User;
 use App\Github\GitHubAppTokenMinter;
 use App\Upsun\UpsunClientFactory;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -17,6 +18,11 @@ use Upsun\Api\ApiException;
 #[IsGranted(User::ROLE_ADMIN)]
 final class AutoRcaController extends AbstractController
 {
+    public function __construct(
+        private readonly LoggerInterface $logger,
+    ) {
+    }
+
     #[Route('', name: 'admin_auto_rca', methods: ['GET'])]
     public function index(): Response
     {
@@ -31,6 +37,18 @@ final class AutoRcaController extends AbstractController
         throw new \RuntimeException('[Auto-RCA test] Simulated 500 error triggered from the admin panel.');
     }
 
+    /**
+     * Directly spawns an Upsun task container with a synthetic incident payload.
+     *
+     * This is a test/debug endpoint — it does NOT wait for a real exception.
+     * Instead, it constructs a fake incident payload (see buildIncidentVariables)
+     * and sends it to the Upsun task container API immediately. This allows
+     * developers to exercise the full Auto-RCA pipeline (task container, OpenCode,
+     * PR creation) without having to reproduce a production error.
+     *
+     * The RuntimeException class, message, file, and line in the payload are all
+     * hand-crafted. The "line" is the __LINE__ constant within buildIncidentVariables.
+     */
     #[Route('/trigger', name: 'admin_auto_rca_trigger', methods: ['POST'])]
     public function triggerDirectly(Request $request, UpsunClientFactory $factory, GitHubAppTokenMinter $tokenMinter): RedirectResponse
     {
@@ -39,6 +57,12 @@ final class AutoRcaController extends AbstractController
         $projectId     = $this->resolveEnv('PLATFORM_PROJECT');
         $environmentId = $this->resolveEnv('PLATFORM_BRANCH', 'main');
         $taskId        = $this->resolveEnv('UPSUN_RCA_TASK_ID', 'opencode-rca');
+
+        $this->logger->info('Auto-RCA: manual trigger invoked.', [
+            'project'     => $projectId,
+            'environment' => $environmentId,
+            'task'        => $taskId,
+        ]);
 
         try {
             $factory->create()->taskContainers->run(
@@ -85,6 +109,14 @@ final class AutoRcaController extends AbstractController
         return getenv($name) ?: $default;
     }
 
+    /**
+     * Builds a synthetic incident payload for the manual test trigger.
+     *
+     * All fields are hand-crafted — the RuntimeException, its message, file,
+     * and line are not the result of a real exception. The line number is the
+     * __LINE__ constant evaluated at the point where the "line" key is set.
+     * The "trace_top5" is intentionally empty because no real stack trace exists.
+     */
     private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter): array
     {
         $signature = hash('sha256', 'admin-test-'.time());
