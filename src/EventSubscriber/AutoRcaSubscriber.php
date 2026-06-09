@@ -14,8 +14,11 @@ use Upsun\UpsunClient;
 
 final class AutoRcaSubscriber implements EventSubscriberInterface
 {
-    private const int MAX_ATTEMPTS = 3;
     private const int CACHE_TTL = 604_800;
+
+    // How long a single-flight claim is held. If a spawn keeps failing, this is
+    // also the minimum back-off before the same signature may be retried.
+    private const int CLAIM_TTL = 600;
 
     public function __construct(
         private readonly UpsunClient $upsunClient,
@@ -69,17 +72,37 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
             return false;
         }
 
-        $attemptsItem = $this->cache->getItem('auto_rca.attempts.'.$signature);
-        $attempts = $attemptsItem->isHit() ? (int) $attemptsItem->get() : 0;
-
-        if ($attempts >= self::MAX_ATTEMPTS) {
-            $this->logger->warning('AutoRCA: max attempts reached.', compact('signature', 'attempts'));
+        // Atomic single-flight guard: when hundreds of identical 500s arrive at
+        // once (e.g. under load), only the first caller wins the claim and
+        // spawns a task; all the others bail out. apcu_add is atomic across the
+        // PHP-FPM workers, which the previous read-modify-write attempts counter
+        // was not — hence the occasional duplicate spawns.
+        if (!$this->claimSpawn($signature)) {
+            $this->logger->debug('AutoRCA: spawn already claimed for this signature.', ['signature' => $signature]);
 
             return false;
         }
 
-        // Increment before the API call to prevent parallel spawns.
-        $this->cache->save($attemptsItem->set($attempts + 1)->expiresAfter(self::CACHE_TTL));
+        return true;
+    }
+
+    private function claimSpawn(string $signature): bool
+    {
+        $key = 'auto_rca.claim.'.$signature;
+
+        if (\function_exists('apcu_add') && apcu_enabled()) {
+            // Returns true only for the first concurrent caller.
+            return apcu_add($key, 1, self::CLAIM_TTL);
+        }
+
+        // Fallback for environments without APCu (local/CLI): best-effort and
+        // non-atomic, but adequate outside the high-concurrency web path.
+        $item = $this->cache->getItem($key);
+        if ($item->isHit()) {
+            return false;
+        }
+
+        $this->cache->save($item->set(1)->expiresAfter(self::CLAIM_TTL));
 
         return true;
     }

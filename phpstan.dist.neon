@@ -14,7 +14,9 @@ parameters:
         # is not loaded in the local/CI CLI, so PHPStan can't resolve its functions.
         -
             message: '#^Function apcu_[a-z]+ not found\.$#'
-            path: src/Controller/TrafficSimulationController.php
+            paths:
+                - src/Controller/TrafficSimulationController.php
+                - src/EventSubscriber/AutoRcaSubscriber.php
 
     level: 6
     paths:
