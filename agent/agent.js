@@ -50,7 +50,32 @@ function readIncident() {
   return { incident, signature: signature ?? incident.signature ?? 'unknown' };
 }
 
-function buildPrompt({ incident, signature }, workspace) {
+/**
+ * Rewrite deployment-absolute paths (/app/...) to repository-relative paths.
+ *
+ * The exception is captured in the *app* container, where the code lives under
+ * /app. OpenCode, however, works inside a fresh checkout (its current working
+ * directory) and treats /app as an external, read-only directory it must not
+ * touch. Stripping the /app/ prefix turns "/app/src/Foo.php" into "src/Foo.php"
+ * so every path in the prompt resolves inside OpenCode's workspace.
+ */
+function normalizeAppPaths(value) {
+  if (typeof value === 'string') {
+    return value.split('/app/').join('');
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeAppPaths);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, val]) => [key, normalizeAppPaths(val)]),
+    );
+  }
+  return value;
+}
+
+function buildPrompt({ incident: rawIncident, signature }, workspace) {
+  const incident = normalizeAppPaths(rawIncident);
   const ex = incident.exception ?? {};
   const shortSig = String(signature).slice(0, 12);
 
@@ -103,6 +128,12 @@ function buildPrompt({ incident, signature }, workspace) {
 
   return [
     'You are an automated Root-Cause-Analysis (RCA) agent running inside an Upsun task container.',
+    '',
+    'You are already inside a fresh checkout of the repository: your current working',
+    'directory IS the repository root. Every path below is RELATIVE to that root.',
+    'The /app directory is a separate, read-only deployment of this same code and is',
+    'NOT accessible from here \u2014 never read, cd into, or run git against /app. Always use',
+    'the files in your working directory instead.',
     '',
     `Incident signature: ${signature}`,
     `Exception: ${ex.class ?? 'unknown'}`,
