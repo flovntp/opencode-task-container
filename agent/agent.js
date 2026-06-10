@@ -18,6 +18,22 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Short-lived Upsun access token minted by setup.js (run before this script).
+// It authenticates BOTH the remote Upsun MCP server (injected into the staged
+// opencode.json header) and the local `upsun` CLI (mirrored into
+// UPSUN_CLI_TOKEN). Falls back to the legacy env tokens when absent.
+const MCP_TOKEN_FILE = process.env.UPSUN_MCP_TOKEN_FILE || '/tmp/upsun-mcp-token';
+
+function readUpsunToken() {
+  try {
+    const minted = fs.readFileSync(MCP_TOKEN_FILE, 'utf8').trim();
+    if (minted) return minted;
+  } catch {
+    /* no minted token: fall back to env */
+  }
+  return process.env.UPSUN_CLI_TOKEN || process.env.UPSUN_API_TOKEN || '';
+}
+
 // A/B switch: when truthy, OpenCode runs with no token-optimisation plugins so
 // the resulting token summary can be compared against a normal (plugins ON) run.
 const PLUGINS_DISABLED = /^(1|true|yes|on)$/i.test(
@@ -102,21 +118,23 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
   const tasks = [
     'Your tasks:',
     '1. Analyse the exception and identify the most likely root cause.',
-    '2. Gather runtime context from Upsun using the "upsun" CLI in bash (it is',
-    '   already authenticated via the UPSUN_CLI_TOKEN env variable — there is no',
-    '   MCP server, so always shell out to the CLI). Pass the project and',
-    '   environment explicitly and run non-interactively, e.g.:',
-    '     upsun activity:list -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --limit 10 --no-interaction',
-    '     upsun environment:info -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
-    '     upsun resources:get -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
-    '     upsun metrics:all -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
-    '   Run `upsun list --no-interaction` to discover other useful commands (logs,',
-    '   metrics). Use this evidence to confirm or refine the root cause (e.g. spot',
+    '2. Gather runtime context from Upsun. Split the work by tool:',
+    '   - ENVIRONMENT REQUESTS (activities, environment info, deployment state,',
+    '     logs, routes): use the "upsun" MCP server. Call its MCP tools directly',
+    '     (e.g. list activities, get environment info, fetch environment logs and',
+    '     routes) — it is authenticated with a short-lived token. Pass the project',
+    '     id "$PLATFORM_PROJECT" and the environment "$PLATFORM_BRANCH" as',
+    '     arguments.',
+    '   - METRICS AND RESOURCES (NOT exposed over MCP): shell out to the "upsun"',
+    '     CLI in bash, non-interactively:',
+    '       upsun metrics:all -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
+    '       upsun resources:get -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
+    '   Use this evidence (activities + environment state from MCP, metrics +',
+    '   resources from the CLI) to confirm or refine the root cause (e.g. spot',
     '   saturation, OOM, slow queries, correlated 5xx). Application logs may not be',
-    '   reachable from this task container (the log commands can fail with "WebApp',
-    '   not found"); if a command fails or the CLI is unavailable, note it in one',
-    '   line and move on \u2014 never block or retry, the metrics/resources/activities',
-    '   above are enough context.',
+    '   reachable from this task container; if an MCP call or CLI command fails,',
+    '   note it in one line and move on \u2014 never block or retry, the evidence above',
+    '   is enough context.',
     '3. Inspect the relevant source files in this repository.',
   ];
 
@@ -308,6 +326,7 @@ function prepareOpenCodeEnv() {
   // A/B switch: set RCA_DISABLE_PLUGINS=1 to stage the config with an empty
   // `plugin` array. Running the same incident with and without plugins and
   // comparing the token summaries (see summarizeTokens) gives a real delta.
+  const upsunToken = readUpsunToken();
   try {
     const configDir = path.join(configHome, 'opencode');
     fs.mkdirSync(configDir, { recursive: true });
@@ -326,6 +345,13 @@ function prepareOpenCodeEnv() {
       config.plugin = [...optimisationPlugins, TOKENSCOPE_PLUGIN];
       console.log(`Running with plugins ON: ${optimisationPlugins.join(', ')} (+ tokenscope)`);
     }
+    // Inject the short-lived Upsun token into the remote MCP header. This is the
+    // JS equivalent of `envsubst < opencode.json`: the bundled config ships a
+    // ${UPSUN_CLI_TOKEN} placeholder, but OpenCode does not expand env vars in
+    // headers, so we substitute the real value here before staging the config.
+    if (upsunToken && config.mcp?.upsun?.headers) {
+      config.mcp.upsun.headers['upsun-api-token'] = upsunToken;
+    }
     fs.writeFileSync(
       path.join(configDir, 'opencode.json'),
       JSON.stringify(config, null, 2),
@@ -334,12 +360,11 @@ function prepareOpenCodeEnv() {
     console.error('Could not stage opencode.json config:', err.message);
   }
 
-  // The Upsun CLI reads its API token from UPSUN_CLI_TOKEN, but the project
-  // variable is exposed to the container as UPSUN_API_TOKEN. Mirror it so the
-  // agent can shell out to `upsun ... --no-interaction` without an MCP server.
-  const cliToken =
-    process.env.UPSUN_CLI_TOKEN ?? process.env.UPSUN_API_TOKEN ?? '';
-  const tokenEnv = cliToken ? { UPSUN_CLI_TOKEN: cliToken } : {};
+  // The Upsun CLI reads its API token from UPSUN_CLI_TOKEN. The static
+  // UPSUN_API_TOKEN was removed from the project, so reuse the same short-lived
+  // token minted by setup.js for the CLI too (metrics/resources go through the
+  // CLI). Falls back to any legacy env token if no token was minted.
+  const tokenEnv = upsunToken ? { UPSUN_CLI_TOKEN: upsunToken } : {};
 
   return { ...process.env, ...dirs, ...tokenEnv, PATH: mergedPath };
 }

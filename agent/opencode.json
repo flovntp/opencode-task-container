@@ -9,5 +9,16 @@
         "bash": "allow",
         "edit": "allow",
         "webfetch": "allow"
+    },
+     "mcp": {
+        "upsun": {
+        "type": "remote",
+        "url": "https://mcp.upsun.com/mcp",
+        "headers": {
+            "upsun-api-token": "${UPSUN_CLI_TOKEN}",
+            "enable-write": "true"
+        },
+        "enabled": true
+        }
     }
 }

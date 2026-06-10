@@ -83,8 +83,9 @@ tasks:
         opencode-ai: "*" # OpenCode
         upsun: "*"       # Upsun CLI
     run:
-      command: node agent/agent.js
+      command: node agent/setup.js && node agent/agent.js
       timeout: 3600
+    # TODO test without these permissions too, to confirm the agent can still run and collect evidence even if the CLI is completely unavailable (e.g. due to a broken install or a failed `npm install` during build).
     authorizations: # allow the task to access the environment API (read-only)
       - type: env
         action: view
