@@ -3,6 +3,7 @@
 namespace App\EventSubscriber;
 
 use App\Github\GitHubAppTokenMinter;
+use App\Upsun\UpsunClientFactory;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
@@ -21,6 +22,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
 
     public function __construct(
         private readonly UpsunClient $upsunClient,
+        private readonly UpsunClientFactory $upsunClientFactory,
         private readonly GitHubAppTokenMinter $tokenMinter,
         private readonly LoggerInterface $logger,
         private readonly string $upsunProjectId,
@@ -142,6 +144,19 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
             // GitHub App server-to-server token is rejected by that endpoint.
             $env['GH_PR_TOKEN'] = $github['token'];
             $env['GITHUB_REPO'] = $github['repository'];
+        }
+
+        // The task container has NO localhost:8200 credential broker, so it
+        // cannot mint its own token. Mint one here (the app container CAN reach
+        // 8200) and forward it: the agent uses it for the remote Upsun MCP
+        // server header and mirrors it into the `upsun` CLI. Best-effort: the
+        // task still runs (with reduced Upsun context) if minting fails.
+        try {
+            $env['UPSUN_CLI_TOKEN'] = $this->upsunClientFactory->mintAccessToken();
+        } catch (\Throwable $e) {
+            $this->logger->warning('AutoRCA: could not mint a task Upsun token.', $context + [
+                'error' => $e->getMessage(),
+            ]);
         }
 
         try {

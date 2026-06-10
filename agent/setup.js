@@ -69,6 +69,16 @@ async function mintFrom(endpoint) {
 }
 
 async function main() {
+  // The app container forwards a short-lived token as UPSUN_CLI_TOKEN (the task
+  // container has no localhost:8200 broker of its own). When present, use it
+  // directly and skip the mint — agent.js reads this file for the MCP header.
+  const forwarded = (process.env.UPSUN_CLI_TOKEN || '').trim();
+  if (forwarded) {
+    fs.writeFileSync(TOKEN_FILE, forwarded, { mode: 0o600 });
+    console.log(`[setup] Using forwarded UPSUN_CLI_TOKEN -> ${TOKEN_FILE}`);
+    return;
+  }
+
   let token;
   for (const endpoint of TOKEN_ENDPOINTS) {
     try {

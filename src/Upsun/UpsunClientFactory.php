@@ -49,14 +49,18 @@ final class UpsunClientFactory
     /**
      * Exchange the container's ambient credentials for a short-lived access
      * token via the local credential service (localhost:8200).
+     *
+     * Public so callers (e.g. the Auto-RCA subscriber) can mint a token to
+     * forward to a task container, which has NO localhost:8200 broker of its own
+     * and therefore cannot mint one itself.
      */
-    private function mintAccessToken(): string
+    public function mintAccessToken(?int $ttl = null): string
     {
         $response = $this->httpClient->request('POST', $this->tokenEndpoint, [
             'headers' => ['Content-Type' => 'application/x-www-form-urlencoded'],
             'body'    => http_build_query([
                 'grant_type'  => 'client_credentials',
-                'x-token-ttl' => (string) $this->tokenTtl,
+                'x-token-ttl' => (string) ($ttl ?? $this->tokenTtl),
             ]),
         ]);
 
