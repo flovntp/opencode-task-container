@@ -13,7 +13,19 @@ parameters:
         # APCu is enabled on the Upsun runtime (.upsun/config.yaml extensions) but
         # is not loaded in the local/CI CLI, so PHPStan can't resolve its functions.
         -
-            message: '#^Function apcu_[a-z]+ not found\.$#'
+            message: '#^Function apcu_inc not found\.$#'
+            paths:
+                - src/Controller/TrafficSimulationController.php
+        -
+            message: '#^Function apcu_fetch not found\.$#'
+            paths:
+                - src/Controller/TrafficSimulationController.php
+        -
+            message: '#^Function apcu_dec not found\.$#'
+            paths:
+                - src/Controller/TrafficSimulationController.php
+        -
+            message: '#^Function apcu_enabled not found\.$#'
             paths:
                 - src/Controller/TrafficSimulationController.php
 
