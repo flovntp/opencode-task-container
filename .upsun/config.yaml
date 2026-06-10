@@ -89,6 +89,9 @@ tasks:
     authorizations: # allow the task to access the environment API (read-only)
       - type: env
         action: view
+      - type: task
+        resource: myagent
+        action: operate
     variables:
       env:
         OPENCODE_THEME: "opencode"
