@@ -240,11 +240,15 @@ function prepareOpenCodeEnv() {
   // MCP/skill binaries installed at build time under /app/node_modules/.bin
   // (e.g. `upsun-mcp`) are no longer discoverable. Keep them on PATH so the
   // upsun MCP server still starts regardless of the working directory.
-  const extraPath = '/app/node_modules/.bin';
+  // `upsun-mcp` lives under /app/node_modules/.bin; `snip` (installed via
+  // install-github-asset.sh) lives under /app/.global/bin. Keep both on PATH.
+  const extraPaths = ['/app/node_modules/.bin', '/app/.global/bin'];
   const currentPath = process.env.PATH ?? '';
-  const mergedPath = currentPath.split(':').includes(extraPath)
+  const segments = currentPath.split(':');
+  const missing = extraPaths.filter((p) => !segments.includes(p));
+  const mergedPath = missing.length === 0
     ? currentPath
-    : `${extraPath}:${currentPath}`;
+    : `${missing.join(':')}:${currentPath}`;
 
   // Seed the writable config dir with the bundled opencode.json (MCP setup).
   // The deploy hook only writes it into the app container's read-only

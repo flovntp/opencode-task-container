@@ -101,26 +101,11 @@ tasks:
         echo "Upsun Skills installed at $PLATFORM_APP_DIR/node_modules/.bin/upsun-mcp"
 
         # Token optimisation: install the `snip` binary used by the opencode-snip
-        # plugin to filter noisy shell output before it reaches the LLM context.
-        # The three npm plugins (openslimedit / opencode-dcp / opencode-snip) are
-        # fetched automatically by OpenCode at startup; only this Go binary needs
-        # a manual install. Pinned + checksum-verified for reproducible builds.
+        # plugin. snip has no npm package, so it cannot go through dependencies;
+        # install-github-asset.sh fetches it from GitHub releases into /app/.global/bin.
         echo "Install snip (opencode-snip backend)..."
-        SNIP_VERSION="0.18.0"
-        SNIP_SHA256="3fa038fb3e23e07cd7e424e0c324f825464c28bfc4e33cbfd7acd9a92ea39e08"
-        SNIP_TARBALL="snip_${SNIP_VERSION}_linux_amd64.tar.gz"
-        SNIP_URL="https://github.com/edouard-claude/snip/releases/download/v${SNIP_VERSION}/${SNIP_TARBALL}"
-        curl -fsSL "$SNIP_URL" -o "/tmp/${SNIP_TARBALL}"
-        echo "${SNIP_SHA256}  /tmp/${SNIP_TARBALL}" | sha256sum -c -
-        rm -rf /tmp/snip-extract && mkdir -p /tmp/snip-extract
-        tar -xzf "/tmp/${SNIP_TARBALL}" -C /tmp/snip-extract
-        # Install into node_modules/.bin, which agent.js already puts on PATH at
-        # runtime (so opencode-snip can find `snip` from any working directory).
-        mkdir -p "$PLATFORM_APP_DIR/node_modules/.bin"
-        install -m 0755 /tmp/snip-extract/snip "$PLATFORM_APP_DIR/node_modules/.bin/snip"
-        rm -rf "/tmp/${SNIP_TARBALL}" /tmp/snip-extract
-        "$PLATFORM_APP_DIR/node_modules/.bin/snip" --version
-        echo "snip installed."
+        curl -fsS https://raw.githubusercontent.com/upsun/snippets/main/src/install-github-asset.sh | bash /dev/stdin "edouard-claude/snip"
+        snip --version
 
     relationships:
       app: "app:http"
