@@ -121,6 +121,7 @@ final class AutoRcaController extends AbstractController
         return getenv($name) ?: $default;
     }
 
+    /** @return array<string, mixed> */
     private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter): array
     {
         $signature = hash('sha256', 'admin-test-'.time());
