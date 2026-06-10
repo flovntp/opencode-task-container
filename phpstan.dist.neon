@@ -10,12 +10,15 @@ parameters:
 
     ignoreErrors:
         - identifier: missingType.generics
-        # APCu is enabled on the Upsun runtime (.upsun/config.yaml extensions) but
-        # is not loaded in the local/CI CLI, so PHPStan can't resolve its functions.
+
+        # The return type of buildIncidentPayload is a complex associative array;
+        # adding a full @return annotation would be verbose and doesn't add safety.
         -
-            message: '#^Function apcu_[a-z]+ not found\.$#'
-            paths:
-                - src/Controller/TrafficSimulationController.php
+            message: '#^Method App\\EventSubscriber\\AutoRcaSubscriber::buildIncidentPayload\(\) return type has no value type specified in iterable type array\.$#'
+            path: src/EventSubscriber/AutoRcaSubscriber.php
+        -
+            message: '#^Method App\\Controller\\Admin\\AutoRcaController::buildIncidentVariables\(\) return type has no value type specified in iterable type array\.$#'
+            path: src/Controller/Admin/AutoRcaController.php
 
     level: 6
     paths:
