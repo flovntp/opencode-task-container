@@ -449,27 +449,60 @@ function dumpOpenCodeLog(dataHome) {
 }
 
 /**
- * Find the id of the MAIN OpenCode session from the run log. OpenCode prints a
- * `message=created id=ses_… parentID=…` line for every session it opens; the
- * main session is the first one created (subagent/child sessions come later and
- * carry a parentID). We pass this id to the TokenScope measurement pass so it
- * reports the agent's real session rather than the throwaway measurement one.
+ * Find the id of the MAIN OpenCode session for this run. We need it to point the
+ * TokenScope measurement pass at the agent's real session rather than the
+ * throwaway measurement one.
+ *
+ * Primary source: OpenCode's persisted session metadata. Every session is stored
+ * as a JSON file whose `id` starts with "ses_"; the main session is the one
+ * without a `parentID` (subagent/child sessions carry their parent's id). When
+ * several exist we take the earliest-created one. We fall back to scraping the
+ * run log (`message=created id=ses_…`) when storage can't be read — the log file
+ * is sometimes empty, so storage is preferred.
  */
 function extractMainSessionId(dataHome) {
+  const root = path.join(dataHome, 'opencode');
+
+  // 1) Persisted session metadata (source of truth).
   try {
-    const logDir = path.join(dataHome, 'opencode', 'log');
-    const latest = fs
+    const sessions = [];
+    for (const file of walkJson(root)) {
+      let parsed;
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch {
+        continue;
+      }
+      const info = parsed && parsed.info ? parsed.info : parsed;
+      if (!info || typeof info !== 'object') continue;
+      if (typeof info.id !== 'string' || !info.id.startsWith('ses_')) continue;
+      const created = Number(info.time && info.time.created) || 0;
+      sessions.push({ id: info.id, parentID: info.parentID, created });
+    }
+    const mains = sessions.filter((s) => !s.parentID);
+    const pick = (mains.length ? mains : sessions).sort((a, b) => a.created - b.created)[0];
+    if (pick) return pick.id;
+  } catch {
+    /* fall through to log scraping */
+  }
+
+  // 2) Fallback: scrape the run log.
+  try {
+    const logDir = path.join(root, 'log');
+    const files = fs
       .readdirSync(logDir)
       .map((f) => path.join(logDir, f))
-      .sort()
-      .pop();
-    if (!latest) return null;
-    const content = fs.readFileSync(latest, 'utf8');
-    const match = content.match(/\bid=(ses_[A-Za-z0-9]+)/);
-    return match ? match[1] : null;
+      .sort();
+    for (const file of files.reverse()) {
+      const content = fs.readFileSync(file, 'utf8');
+      const match = content.match(/\bid=(ses_[A-Za-z0-9]+)/);
+      if (match) return match[1];
+    }
   } catch {
-    return null;
+    /* ignore */
   }
+
+  return null;
 }
 
 /**
