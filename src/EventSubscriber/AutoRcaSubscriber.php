@@ -209,7 +209,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
     {
         $request = $event->getRequest();
 
-            return [
+        return [
             'signature' => $signature,
             'exception' => [
                 'class' => $throwable::class,
