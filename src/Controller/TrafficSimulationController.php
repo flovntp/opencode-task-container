@@ -147,9 +147,15 @@ final class TrafficSimulationController extends AbstractController
         // The run token (letters only) keeps the AutoRcaSubscriber signature
         // stable within a run but distinct across runs, so the pipeline is
         // re-triggerable while still spawning a single task per run.
+        //
+        // elapsed is formatted with a FIXED 2 decimals on purpose: the throw is
+        // reached both immediately (elapsed 0) and mid-loop (elapsed 12.34). The
+        // subscriber normalises digits with \b\d+\b, so "0s" → "Ns" but
+        // "12.34s" → "N.Ns" — two different signatures → two tasks. Always
+        // emitting "N.NN" (e.g. "0.00s") makes both paths normalise identically.
         throw new \RuntimeException(sprintf(
             '[Auto-RCA test] Traffic overload on run %s: %d concurrent requests exceeded the threshold of %d '
-            .'during slow processing (elapsed %ss). The endpoint shed load by failing fast.',
+            .'during slow processing (elapsed %.2fs). The endpoint shed load by failing fast.',
             $runToken,
             $current,
             $threshold,
