@@ -582,7 +582,14 @@ function runOpenCode(prompt, cwd) {
 
   // Best-effort fallback totals straight from the persisted message files.
   summarizeTokens(env.XDG_DATA_HOME);
-  process.exit(code);
+
+  // Do NOT call process.exit() here. stdout/stderr are pipes to the Upsun task
+  // log collector, and a hard exit drops whatever is still buffered — which
+  // truncated the TokenScope report and token summary (the last writes before
+  // the exit) from the task log. Setting exitCode lets Node drain both streams
+  // and then exit naturally; spawnSync is synchronous so nothing keeps the
+  // event loop alive afterwards.
+  process.exitCode = code;
 }
 
 const data = readIncident();
