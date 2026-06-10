@@ -30,6 +30,14 @@ const ANALYSIS_ONLY = /^(1|true|yes|on)$/i.test(
   process.env.RCA_ANALYSIS_ONLY ?? '',
 );
 
+// TokenScope is the measurement instrument: it reads OpenCode's stored
+// `step-finish` telemetry and writes an authoritative per-session token/cost
+// report (token-usage-output.txt). It is NOT a token-optimisation plugin, so it
+// is loaded on BOTH the plugins-ON and plugins-OFF (baseline) runs — otherwise
+// there would be nothing to compare. https://github.com/ramtinJ95/opencode-tokenscope
+const TOKENSCOPE_PLUGIN = '@ramtinj95/opencode-tokenscope@latest';
+const TOKENSCOPE_REPORT = 'token-usage-output.txt';
+
 function readIncident() {
   let raw = process.env.INCIDENT_JSON;
   let signature = process.env.INCIDENT_SIGNATURE;
@@ -147,6 +155,14 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
       '   run. Output your findings as text only.',
     );
   }
+
+  tasks.push(
+    '',
+    'FINAL STEP (always perform this last, even if earlier steps failed): call the',
+    '`tokenscope` tool exactly once to record this session\'s token usage. Leave',
+    'sessionID unset and pass includeSubagents=true. Call the tool directly — do',
+    'NOT delegate it to a subagent and do NOT do anything else after it.',
+  );
 
   return [
     'You are an automated Root-Cause-Analysis (RCA) agent running inside an Upsun task container.',
@@ -293,11 +309,17 @@ function prepareOpenCodeEnv() {
     const config = JSON.parse(
       fs.readFileSync(path.join(__dirname, 'opencode.json'), 'utf8'),
     );
+    // Optimisation plugins (openslimedit / opencode-dcp / opencode-snip) come
+    // from the bundled config and are toggled by the A/B switch. TokenScope is
+    // always appended so both runs produce a comparable token report.
+    const optimisationPlugins = (Array.isArray(config.plugin) ? config.plugin : [])
+      .filter((p) => !String(p).startsWith('@ramtinj95/opencode-tokenscope'));
     if (PLUGINS_DISABLED) {
-      config.plugin = [];
-      console.log('RCA_DISABLE_PLUGINS set: running with plugins OFF (baseline).');
+      config.plugin = [TOKENSCOPE_PLUGIN];
+      console.log('RCA_DISABLE_PLUGINS set: optimisation plugins OFF (baseline); tokenscope kept for measurement.');
     } else {
-      console.log(`Running with plugins ON: ${(config.plugin ?? []).join(', ')}`);
+      config.plugin = [...optimisationPlugins, TOKENSCOPE_PLUGIN];
+      console.log(`Running with plugins ON: ${optimisationPlugins.join(', ')} (+ tokenscope)`);
     }
     fs.writeFileSync(
       path.join(configDir, 'opencode.json'),
@@ -393,6 +415,28 @@ function summarizeTokens(dataHome) {
   }
 }
 
+/**
+ * Print the TokenScope report the agent wrote at the end of the session. This
+ * is the authoritative token/cost measurement (it parses OpenCode's stored
+ * step-finish telemetry), unlike summarizeTokens which is a best-effort
+ * fallback over the raw message files.
+ */
+function dumpTokenScopeReport(cwd) {
+  try {
+    const file = path.join(cwd, TOKENSCOPE_REPORT);
+    if (!fs.existsSync(file)) {
+      console.error(`TokenScope report not found at ${file} (the agent may not have called the tokenscope tool).`);
+      return;
+    }
+    const mode = PLUGINS_DISABLED ? 'OFF (baseline)' : 'ON';
+    console.error(`=== TokenScope report (plugins: ${mode}) ===`);
+    console.error(fs.readFileSync(file, 'utf8'));
+    console.error('=== end TokenScope report ===');
+  } catch (err) {
+    console.error('Could not read TokenScope report:', err.message);
+  }
+}
+
 function dumpOpenCodeLog(dataHome) {
   try {
     const logDir = path.join(dataHome, 'opencode', 'log');
@@ -440,7 +484,9 @@ function runOpenCode(prompt, cwd) {
     // Always surface the OpenCode log: a clean exit can still mean "did nothing"
     // (e.g. no PR opened), and the log is the only window into what it decided.
     dumpOpenCodeLog(env.XDG_DATA_HOME);
-    // Print the billable token/cost totals so ON vs OFF runs are comparable.
+    // Authoritative token/cost measurement written by the tokenscope tool.
+    dumpTokenScopeReport(cwd);
+    // Best-effort fallback totals straight from the persisted message files.
     summarizeTokens(env.XDG_DATA_HOME);
     process.exit(code ?? 0);
   });
