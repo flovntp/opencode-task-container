@@ -18,6 +18,12 @@ const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// A/B switch: when truthy, OpenCode runs with no token-optimisation plugins so
+// the resulting token summary can be compared against a normal (plugins ON) run.
+const PLUGINS_DISABLED = /^(1|true|yes|on)$/i.test(
+  process.env.RCA_DISABLE_PLUGINS ?? '',
+);
+
 function readIncident() {
   let raw = process.env.INCIDENT_JSON;
   let signature = process.env.INCIDENT_SIGNATURE;
@@ -253,18 +259,114 @@ function prepareOpenCodeEnv() {
   // Seed the writable config dir with the bundled opencode.json (MCP setup).
   // The deploy hook only writes it into the app container's read-only
   // /app/.config/opencode, which this separate task container cannot use.
+  //
+  // A/B switch: set RCA_DISABLE_PLUGINS=1 to stage the config with an empty
+  // `plugin` array. Running the same incident with and without plugins and
+  // comparing the token summaries (see summarizeTokens) gives a real delta.
   try {
     const configDir = path.join(configHome, 'opencode');
     fs.mkdirSync(configDir, { recursive: true });
-    fs.copyFileSync(
-      path.join(__dirname, 'opencode.json'),
+    const config = JSON.parse(
+      fs.readFileSync(path.join(__dirname, 'opencode.json'), 'utf8'),
+    );
+    if (PLUGINS_DISABLED) {
+      config.plugin = [];
+      console.log('RCA_DISABLE_PLUGINS set: running with plugins OFF (baseline).');
+    } else {
+      console.log(`Running with plugins ON: ${(config.plugin ?? []).join(', ')}`);
+    }
+    fs.writeFileSync(
       path.join(configDir, 'opencode.json'),
+      JSON.stringify(config, null, 2),
     );
   } catch (err) {
     console.error('Could not stage opencode.json config:', err.message);
   }
 
   return { ...process.env, ...dirs, PATH: mergedPath };
+}
+
+/**
+ * Recursively collect every *.json file under `dir`.
+ */
+function walkJson(dir, out = []) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkJson(full, out);
+    } else if (entry.isFile() && entry.name.endsWith('.json')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+/**
+ * Sum the per-message token usage and cost OpenCode persists under its data
+ * dir, and print a summary. This is the measurable signal for whether the
+ * token-optimisation plugins actually reduced usage (compare ON vs OFF runs).
+ */
+function summarizeTokens(dataHome) {
+  try {
+    const root = path.join(dataHome, 'opencode');
+    const totals = {
+      messages: 0,
+      input: 0,
+      output: 0,
+      reasoning: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: 0,
+    };
+
+    for (const file of walkJson(root)) {
+      let parsed;
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch {
+        continue;
+      }
+      const info = parsed && parsed.info ? parsed.info : parsed;
+      // An assistant message carries both a numeric `cost` and a `tokens`
+      // object; that shape uniquely identifies billable turns and avoids
+      // double-counting session-info files.
+      if (!info || typeof info !== 'object') continue;
+      const tokens = info.tokens;
+      if (typeof info.cost !== 'number' || !tokens || typeof tokens !== 'object') {
+        continue;
+      }
+      totals.messages += 1;
+      totals.input += Number(tokens.input) || 0;
+      totals.output += Number(tokens.output) || 0;
+      totals.reasoning += Number(tokens.reasoning) || 0;
+      totals.cacheRead += Number(tokens.cache && tokens.cache.read) || 0;
+      totals.cacheWrite += Number(tokens.cache && tokens.cache.write) || 0;
+      totals.cost += Number(info.cost) || 0;
+    }
+
+    const mode = PLUGINS_DISABLED ? 'OFF (baseline)' : 'ON';
+    console.error('=== Token usage summary ===');
+    console.error(`plugins:           ${mode}`);
+    console.error(`assistant messages: ${totals.messages}`);
+    console.error(`tokens.input:       ${totals.input}`);
+    console.error(`tokens.output:      ${totals.output}`);
+    console.error(`tokens.reasoning:   ${totals.reasoning}`);
+    console.error(`tokens.cache.read:  ${totals.cacheRead}`);
+    console.error(`tokens.cache.write: ${totals.cacheWrite}`);
+    console.error(`cost (USD):         ${totals.cost.toFixed(6)}`);
+    if (totals.messages === 0) {
+      console.error('(no per-message usage found — OpenCode may not have persisted session data)');
+    }
+    console.error('=== end token usage summary ===');
+  } catch (err) {
+    console.error('Could not summarize token usage:', err.message);
+  }
 }
 
 function dumpOpenCodeLog(dataHome) {
@@ -314,6 +416,8 @@ function runOpenCode(prompt, cwd) {
     // Always surface the OpenCode log: a clean exit can still mean "did nothing"
     // (e.g. no PR opened), and the log is the only window into what it decided.
     dumpOpenCodeLog(env.XDG_DATA_HOME);
+    // Print the billable token/cost totals so ON vs OFF runs are comparable.
+    summarizeTokens(env.XDG_DATA_HOME);
     process.exit(code ?? 0);
   });
 }
