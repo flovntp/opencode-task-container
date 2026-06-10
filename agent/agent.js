@@ -82,21 +82,30 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
   const tasks = [
     'Your tasks:',
     '1. Analyse the exception and identify the most likely root cause.',
-    '2. Inspect the relevant source files in this repository.',
+    '2. Gather runtime context from Upsun via the "upsun" MCP server (already',
+    '   authenticated — do NOT shell out to the `upsun` CLI, it has no token). For',
+    '   this project ("$PLATFORM_PROJECT") and environment ("$PLATFORM_BRANCH"),',
+    '   pull the recent application logs, the error/HTTP metrics and the current',
+    '   resource allocation around the time of the incident. Use this evidence to',
+    '   confirm or refine the root cause (e.g. spot saturation, OOM, slow queries,',
+    '   correlated 5xx). If the MCP is unavailable, note it in one line and continue',
+    '   with static code analysis — never block on it.',
+    '3. Inspect the relevant source files in this repository.',
   ];
 
   if (workspace.canOpenPr) {
     tasks.push(
-      `3. Apply a minimal, focused fix on a new branch named "auto-rca/${shortSig}".`,
+      `4. Apply a minimal, focused fix on a new branch named "auto-rca/${shortSig}".`,
       '   You MUST always produce a change set, even if you are not fully certain of',
       '   the root cause. If no obvious code bug exists (e.g. the exception was',
       '   thrown deliberately), still open a PROPOSAL pull request: add defensive',
       '   handling, a guard, a clarifying comment, or a short RCA note file, so the',
       '   branch always has at least one committed change for a human to review.',
-      '4. Commit the change with a clear message, push the branch to "origin", and',
+      '5. Commit the change with a clear message, push the branch to "origin", and',
       `   ALWAYS open a pull request against "${workspace.baseBranch}". Never finish`,
       '   without opening the PR. Title it "[Auto-RCA] <summary>" and, in the body,',
-      '   describe the root cause, the proposed fix, and your confidence level. The',
+      `   describe the root cause, the proposed fix, and your confidence level. Back`,
+      '   your analysis with the Upsun observability evidence gathered in step 2. The',
       '   remote is already authenticated, so use plain git to push. To open the PR,',
       '   call the GitHub REST API with the token in the $GH_PR_TOKEN env variable:',
       `     curl -sS -X POST \\`,
@@ -104,7 +113,7 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
       `       -H "Accept: application/vnd.github+json" \\`,
       `       https://api.github.com/repos/${workspace.repo}/pulls \\`,
       `       -d '{"title":"[Auto-RCA] <summary>","head":"auto-rca/${shortSig}","base":"${workspace.baseBranch}","body":"<body>"}'`,
-      '5. After the PR is open, make the CI green. Poll the GitHub Actions checks',
+      '6. After the PR is open, make the CI green. Poll the GitHub Actions checks',
       '   for the head commit of your branch and fix any failing workflow before you',
       '   finish. Use $GH_PR_TOKEN to query the status (the head SHA comes from',
       '   `git rev-parse HEAD`):',
@@ -121,7 +130,7 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
     );
   } else {
     tasks.push(
-      '3. Propose a concrete fix and describe the root cause. (No GitHub token was',
+      '4. Propose a concrete fix and describe the root cause. (No GitHub token was',
       '   provided, so do not attempt to push or open a pull request.)',
     );
   }
