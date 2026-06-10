@@ -147,6 +147,8 @@ final class TrafficSimulationController extends AbstractController
         // The run token (letters only) keeps the AutoRcaSubscriber signature
         // stable within a run but distinct across runs, so the pipeline is
         // re-triggerable while still spawning a single task per run.
+        // NOTE: RuntimeException (500) is intentional — AutoRcaSubscriber
+        // ignores client errors (< 500), so a 4xx would break the RCA pipeline.
         throw new \RuntimeException(sprintf(
             '[Auto-RCA test] Traffic overload on run %s: %d concurrent requests exceeded the threshold of %d '
             .'during slow processing (elapsed %ss). The endpoint shed load by failing fast.',
