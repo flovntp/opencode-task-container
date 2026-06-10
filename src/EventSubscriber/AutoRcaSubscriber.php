@@ -164,7 +164,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
             );
 
             $this->logger->info('AutoRCA: task container spawned successfully.', $context + [
-                'response' => $response instanceof \Stringable ? (string) $response : null,
+                'response' => (string) $response,
             ]);
 
             // Mark the incident as handled so identical exceptions don't spawn
