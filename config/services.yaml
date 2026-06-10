@@ -30,15 +30,12 @@ services:
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
 
-    # Register the Upsun SDK as plain services and inject UpsunClient directly.
-    # The SDK auto-discovers a PSR-18 HTTP client, so no factory is needed.
-    Upsun\UpsunConfig:
-        arguments:
-            $apiToken: '%env(UPSUN_API_TOKEN)%'
-
+    # The Upsun SDK client authenticates with a short-lived access token minted
+    # from the container-local credential service (localhost:8200). The static
+    # UPSUN_API_TOKEN was removed, so the factory fetches a fresh token per build
+    # and injects it as a bearer token (no api_token OAuth exchange).
     Upsun\UpsunClient:
-        arguments:
-            $upsunConfig: '@Upsun\UpsunConfig'
+        factory: ['@App\Upsun\UpsunClientFactory', 'create']
 
     App\Github\GitHubAppTokenMinter:
         arguments:
