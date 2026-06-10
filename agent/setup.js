@@ -29,36 +29,61 @@
 
 const fs = require('node:fs');
 
-const TOKEN_ENDPOINT =
-  process.env.UPSUN_TOKEN_ENDPOINT || 'http://localhost:8200/oauth2/token';
+// Candidate token endpoints, tried in order. UPSUN_TOKEN_ENDPOINT overrides the
+// list entirely. We try 127.0.0.1 BEFORE localhost on purpose: Node's fetch
+// (undici) resolves `localhost` to IPv6 `::1` first, but the container-local
+// credential broker only listens on IPv4 127.0.0.1 — so `localhost` yields
+// `fetch failed` (ECONNREFUSED on ::1) while 127.0.0.1 connects. PHP/curl in the
+// app container prefers IPv4, which is why the app could already mint a token.
+const TOKEN_ENDPOINTS = process.env.UPSUN_TOKEN_ENDPOINT
+  ? [process.env.UPSUN_TOKEN_ENDPOINT]
+  : [
+      'http://127.0.0.1:8200/oauth2/token',
+      'http://localhost:8200/oauth2/token',
+    ];
 const TOKEN_FILE = process.env.UPSUN_MCP_TOKEN_FILE || '/tmp/upsun-mcp-token';
 // Default TTL covers the whole task run (the task timeout is 3600s) so the MCP
 // token does not expire mid-analysis.
 const TOKEN_TTL = process.env.UPSUN_MCP_TOKEN_TTL || '3600';
 
-async function main() {
+async function mintFrom(endpoint) {
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     'x-token-ttl': TOKEN_TTL,
   });
 
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  const token = data && data.access_token;
+  if (!token) {
+    throw new Error('response did not contain an access_token');
+  }
+  return token;
+}
+
+async function main() {
   let token;
-  try {
-    const res = await fetch(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    if (!res.ok) {
-      throw new Error(`token endpoint returned HTTP ${res.status}`);
+  for (const endpoint of TOKEN_ENDPOINTS) {
+    try {
+      token = await mintFrom(endpoint);
+      console.log(`[setup] Minted token via ${endpoint}`);
+      break;
+    } catch (err) {
+      // err.cause?.code surfaces the real reason (ECONNREFUSED / ENOTFOUND / …)
+      // behind a generic "fetch failed".
+      const cause = err.cause && err.cause.code ? ` (${err.cause.code})` : '';
+      console.error(`[setup] mint via ${endpoint} failed: ${err.message}${cause}`);
     }
-    const data = await res.json();
-    token = data && data.access_token;
-    if (!token) {
-      throw new Error('response did not contain an access_token');
-    }
-  } catch (err) {
-    console.error(`[setup] Could not mint Upsun access token: ${err.message}`);
+  }
+
+  if (!token) {
     console.error(
       '[setup] Continuing without an MCP token (the CLI will rely on the container auth).',
     );
