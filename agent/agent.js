@@ -24,6 +24,12 @@ const PLUGINS_DISABLED = /^(1|true|yes|on)$/i.test(
   process.env.RCA_DISABLE_PLUGINS ?? '',
 );
 
+// Measurement switch: when truthy, the agent only analyses (no branch/commit/
+// push/PR). Keeps A/B runs deterministic and avoids creating branches/PRs.
+const ANALYSIS_ONLY = /^(1|true|yes|on)$/i.test(
+  process.env.RCA_ANALYSIS_ONLY ?? '',
+);
+
 function readIncident() {
   let raw = process.env.INCIDENT_JSON;
   let signature = process.env.INCIDENT_SIGNATURE;
@@ -136,8 +142,9 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
     );
   } else {
     tasks.push(
-      '4. Propose a concrete fix and describe the root cause. (No GitHub token was',
-      '   provided, so do not attempt to push or open a pull request.)',
+      '4. Propose a concrete fix and describe the root cause. Do NOT create a',
+      '   branch, commit, push, or open a pull request — this is an analysis-only',
+      '   run. Output your findings as text only.',
     );
   }
 
@@ -192,6 +199,23 @@ function prepareWorkspace() {
     return fallback;
   }
 
+  if (ANALYSIS_ONLY) {
+    console.log('RCA_ANALYSIS_ONLY set: cloning for analysis only (no branch/commit/PR).');
+    fs.rmSync('/tmp/work', { recursive: true, force: true });
+    const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+    const authHeader = `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`;
+    const clone = git([
+      '-c', authHeader,
+      'clone', '--depth', '50',
+      `https://github.com/${repo}.git`, '/tmp/work',
+    ]);
+    if (clone.status !== 0 || !fs.existsSync(path.join('/tmp/work', '.git'))) {
+      console.error(`git clone failed (status ${clone.status}); falling back to /app.`);
+      return fallback;
+    }
+    console.log(`Cloned ${repo} into /tmp/work (analysis only).`);
+    return { cwd: '/tmp/work', repo, baseBranch, canOpenPr: false };
+  }
   console.log(`Preparing workspace: cloning ${repo} (base ${baseBranch}) into /tmp/work.`);
 
   const workdir = '/tmp/work';
