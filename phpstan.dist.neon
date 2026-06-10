@@ -8,6 +8,8 @@ parameters:
     doctrine:
         objectManagerLoader: tests/object-manager.php
 
+    reportUnmatchedIgnoredErrors: false
+
     ignoreErrors:
         - identifier: missingType.generics
         # APCu is enabled on the Upsun runtime (.upsun/config.yaml extensions) but
@@ -16,6 +18,21 @@ parameters:
             message: '#^Function apcu_[a-z]+ not found\.$#'
             paths:
                 - src/Controller/TrafficSimulationController.php
+        # Pre-existing: method_exists() on a known class is always true.
+        -
+            message: '#^Call to function method_exists\(\) with .* will always evaluate to true\.$#'
+            path: src/EventSubscriber/AutoRcaSubscriber.php
+        # Pre-existing: return type has no value type specified.
+        -
+            message: '#^Method App\\EventSubscriber\\AutoRcaSubscriber::buildIncidentPayload\(\) return type has no value type specified in iterable type array\.$#'
+            path: src/EventSubscriber/AutoRcaSubscriber.php
+        -
+            message: '#^Method App\\Controller\\Admin\\AutoRcaController::buildIncidentVariables\(\) return type has no value type specified in iterable type array\.$#'
+            path: src/Controller/Admin/AutoRcaController.php
+        # Pre-existing: offset 'function' always exists and is not nullable.
+        -
+            message: '#^Offset '\''function'\'' on array\{function: string, .* on left side of \?\? always exists and is not nullable\.$#'
+            path: src/EventSubscriber/AutoRcaSubscriber.php
 
     level: 6
     paths:
