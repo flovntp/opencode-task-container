@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace App\EventSubscriber;
 
 use App\Github\GitHubAppTokenMinter;
@@ -80,7 +89,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         }
 
         if (!is_dir($this->sharedStateDir.'/claim')) {
-            @mkdir($this->sharedStateDir.'/claim', 0775, true);
+            @mkdir($this->sharedStateDir.'/claim', 0o775, true);
         }
 
         // Atomic single-flight claim, shared across every instance and PHP-FPM
@@ -88,7 +97,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         // creates the directory (we win) or fails with EEXIST (someone already
         // owns the claim) — unlike the previous per-instance APCu/cache guard,
         // which let duplicates through under load and across instances.
-        if (@mkdir($claimDir, 0775, true)) {
+        if (@mkdir($claimDir, 0o775, true)) {
             return true;
         }
 
@@ -109,7 +118,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
     {
         $doneDir = $this->sharedStateDir.'/done';
         if (!is_dir($doneDir)) {
-            @mkdir($doneDir, 0775, true);
+            @mkdir($doneDir, 0o775, true);
         }
 
         @touch($doneDir.'/'.$signature);
@@ -120,23 +129,23 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         $incident = $this->buildIncidentPayload($throwable, $event, $signature);
 
         $context = [
-            'signature'   => $signature,
-            'project'     => $this->upsunProjectId,
+            'signature' => $signature,
+            'project' => $this->upsunProjectId,
             'environment' => $this->upsunEnvironmentId,
-            'task'        => $this->upsunRcaTaskId,
+            'task' => $this->upsunRcaTaskId,
         ];
 
         $this->logger->info('AutoRCA: spawning task container…', $context);
 
         $env = [
-            'INCIDENT_JSON'      => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
+            'INCIDENT_JSON' => json_encode($incident, \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR),
             'INCIDENT_SIGNATURE' => $signature,
         ];
 
         // Attach a short-lived, repo-scoped GitHub token so OpenCode can open a
         // pull request. Minting failures are non-fatal: the task still runs.
         $github = $this->tokenMinter->mintInstallationToken();
-        if ($github !== null) {
+        if (null !== $github) {
             // Use a custom name (NOT GITHUB_TOKEN/GH_TOKEN): OpenCode's
             // github-copilot LLM provider authenticates with GITHUB_TOKEN, and a
             // GitHub App server-to-server token is rejected by that endpoint.
@@ -163,18 +172,18 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
             $this->markHandled($signature);
         } catch (ApiException $e) {
             $this->logger->error('AutoRCA: Upsun API rejected the task run.', $context + [
-                'http_status'   => $e->getCode(),
-                'api_status'    => $e->getApiStatus(),
-                'api_title'     => $e->getApiTitle(),
-                'api_message'   => $e->getApiMessage(),
-                'api_code'      => $e->getApiCode(),
-                'error'         => $e->getMessage(),
+                'http_status' => $e->getCode(),
+                'api_status' => $e->getApiStatus(),
+                'api_title' => $e->getApiTitle(),
+                'api_message' => $e->getApiMessage(),
+                'api_code' => $e->getApiCode(),
+                'error' => $e->getMessage(),
                 'response_body' => $e->getResponseBody(),
             ]);
         } catch (\Throwable $e) {
             $this->logger->error('AutoRCA: failed to spawn task container.', $context + [
                 'exception' => $e::class,
-                'error'     => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -202,27 +211,27 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         return [
             'signature' => $signature,
             'exception' => [
-                'class'      => $throwable::class,
-                'message'    => $throwable->getMessage(),
-                'file'       => $throwable->getFile(),
-                'line'       => $throwable->getLine(),
-                'trace_top5' => array_slice(
+                'class' => $throwable::class,
+                'message' => $throwable->getMessage(),
+                'file' => $throwable->getFile(),
+                'line' => $throwable->getLine(),
+                'trace_top5' => \array_slice(
                     array_map(
-                        static fn(array $frame): string => ($frame['file'] ?? '?').':'.($frame['line'] ?? '?').' '.($frame['function'] ?? ''),
+                        static fn (array $frame): string => ($frame['file'] ?? '?').':'.($frame['line'] ?? '?').' '.($frame['function'] ?? ''),
                         $throwable->getTrace(),
                     ),
                     0, 5,
                 ),
             ],
-            'request'      => [
-                'method'     => $request->getMethod(),
-                'route'      => $request->attributes->get('_route', 'unknown'),
-                'path'       => $request->getPathInfo(),
+            'request' => [
+                'method' => $request->getMethod(),
+                'route' => $request->attributes->get('_route', 'unknown'),
+                'path' => $request->getPathInfo(),
                 'user_agent' => substr((string) $request->headers->get('User-Agent', ''), 0, 200),
             ],
-            'triggered_at' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
-            'upsun'        => [
-                'project_id'     => $this->upsunProjectId,
+            'triggered_at' => new \DateTimeImmutable()->format(\DateTimeInterface::ATOM),
+            'upsun' => [
+                'project_id' => $this->upsunProjectId,
                 'environment_id' => $this->upsunEnvironmentId,
             ],
         ];

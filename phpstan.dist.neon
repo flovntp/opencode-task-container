@@ -10,12 +10,6 @@ parameters:
 
     ignoreErrors:
         - identifier: missingType.generics
-        # APCu is enabled on the Upsun runtime (.upsun/config.yaml extensions) but
-        # is not loaded in the local/CI CLI, so PHPStan can't resolve its functions.
-        -
-            message: '#^Function apcu_[a-z]+ not found\.$#'
-            paths:
-                - src/Controller/TrafficSimulationController.php
 
     level: 6
     paths:
