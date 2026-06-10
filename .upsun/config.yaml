@@ -104,6 +104,16 @@ tasks:
         # Token optimisation: install the `snip` binary used by the opencode-snip
         # plugin. snip has no npm package, so it cannot go through dependencies;
         # install-github-asset.sh fetches it from GitHub releases into /app/.global/bin.
+        #
+        # Authenticate the GitHub API calls with a short-lived App installation
+        # token. Unauthenticated calls share a 60 req/h bucket keyed on Upsun's
+        # NAT egress IP (contended by every project on the cluster) and routinely
+        # 403; an App token uses the installation's own 5000 req/h quota instead.
+        echo "Minting GitHub App token for snip install..."
+        set +x  # don't leak the token into the xtrace build log
+        export GITHUB_API_TOKEN="$(node agent/mint-github-token.js || true)"
+        set -x
+
         echo "Install snip (opencode-snip backend)..."
         curl -fsS https://raw.githubusercontent.com/upsun/snippets/main/src/install-github-asset.sh | bash /dev/stdin "edouard-claude/snip"
         snip --version
