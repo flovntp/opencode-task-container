@@ -68,7 +68,31 @@ async function mintFrom(endpoint) {
   return token;
 }
 
+// Diagnostic: probe the localhost:8200 credential broker at RUNTIME. The broker
+// is known to be absent during the build hook; this tells us whether it exists
+// while the task container is actually running. Best-effort and side-effect free
+// — it never changes which token we ultimately use, it only logs reachability.
+async function probeBrokerAtRuntime() {
+  console.log('[setup] === 8200 RUNTIME PROBE ===');
+  for (const endpoint of TOKEN_ENDPOINTS) {
+    try {
+      const token = await mintFrom(endpoint);
+      console.log(
+        `[setup] 8200 RUNTIME PROBE: reachable via ${endpoint} (got access_token, len=${token.length})`,
+      );
+    } catch (err) {
+      const cause = err.cause && err.cause.code ? ` (${err.cause.code})` : '';
+      console.error(
+        `[setup] 8200 RUNTIME PROBE: NOT reachable via ${endpoint}: ${err.message}${cause}`,
+      );
+    }
+  }
+  console.log('[setup] === /8200 RUNTIME PROBE ===');
+}
+
 async function main() {
+  await probeBrokerAtRuntime();
+
   // The app container forwards a short-lived token as UPSUN_CLI_TOKEN (the task
   // container has no localhost:8200 broker of its own). When present, use it
   // directly and skip the mint — agent.js reads this file for the MCP header.
