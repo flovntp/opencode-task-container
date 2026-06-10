@@ -97,6 +97,14 @@ tasks:
       build: |
         set -ex
 
+        # DIAG: is the localhost:8200 credential broker reachable during the
+        # task build/deploy phase? (At task RUN time it is not — ECONNREFUSED.)
+        # Non-fatal so it never breaks the build.
+        echo "=== 8200 BUILD TEST ==="
+        token=$(curl -s http://localhost:8200/oauth2/token -d grant_type=client_credentials | jq -r .access_token) || true
+        echo "TOKEN_8200=$token"
+        echo "=== /8200 BUILD TEST ==="
+
         echo "Install Upsun Skills..."
         npx skills add https://github.com/upsun/ai --skill upsun -y
         echo "Upsun Skills installed at $PLATFORM_APP_DIR/node_modules/.bin/upsun-mcp"
