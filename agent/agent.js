@@ -102,14 +102,19 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
   const tasks = [
     'Your tasks:',
     '1. Analyse the exception and identify the most likely root cause.',
-    '2. Gather runtime context from Upsun via the "upsun" MCP server (already',
-    '   authenticated — do NOT shell out to the `upsun` CLI, it has no token). For',
-    '   this project ("$PLATFORM_PROJECT") and environment ("$PLATFORM_BRANCH"),',
-    '   pull the recent application logs, the error/HTTP metrics and the current',
-    '   resource allocation around the time of the incident. Use this evidence to',
-    '   confirm or refine the root cause (e.g. spot saturation, OOM, slow queries,',
-    '   correlated 5xx). If the MCP is unavailable, note it in one line and continue',
-    '   with static code analysis — never block on it.',
+    '2. Gather runtime context from Upsun using the "upsun" CLI in bash (it is',
+    '   already authenticated via the UPSUN_CLI_TOKEN env variable — there is no',
+    '   MCP server, so always shell out to the CLI). Pass the project and',
+    '   environment explicitly and run non-interactively, e.g.:',
+    '     upsun activity:list -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --limit 10 --no-interaction',
+    '     upsun environment:info -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
+    '     upsun resources:get -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
+    '     upsun metrics:all -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
+    '   Run `upsun list --no-interaction` to discover other useful commands (logs,',
+    '   metrics). Use this evidence to confirm or refine the root cause (e.g. spot',
+    '   saturation, OOM, slow queries, correlated 5xx). If a command fails or the',
+    '   CLI is unavailable, note it in one line and continue with static code',
+    '   analysis — never block on it.',
     '3. Inspect the relevant source files in this repository.',
   ];
 
@@ -275,10 +280,10 @@ function prepareOpenCodeEnv() {
   }
 
   // OpenCode runs with cwd set to the freshly cloned repo (/tmp/work), so the
-  // MCP/skill binaries installed at build time under /app/node_modules/.bin
-  // (e.g. `upsun-mcp`) are no longer discoverable. Keep them on PATH so the
-  // upsun MCP server still starts regardless of the working directory.
-  // `upsun-mcp` lives under /app/node_modules/.bin; `snip` (installed via
+  // CLI/skill binaries installed at build time under /app/node_modules/.bin
+  // (e.g. the `upsun` CLI) are no longer discoverable. Keep them on PATH so the
+  // agent can still shell out to `upsun` regardless of the working directory.
+  // `upsun` lives under /app/node_modules/.bin; `snip` (installed via
   // install-github-asset.sh) lives under /app/.global/bin. Keep both on PATH.
   const extraPaths = ['/app/node_modules/.bin', '/app/.global/bin'];
   const currentPath = process.env.PATH ?? '';
@@ -288,9 +293,10 @@ function prepareOpenCodeEnv() {
     ? currentPath
     : `${missing.join(':')}:${currentPath}`;
 
-  // Seed the writable config dir with the bundled opencode.json (MCP setup).
-  // The deploy hook only writes it into the app container's read-only
-  // /app/.config/opencode, which this separate task container cannot use.
+  // Seed the writable config dir with the bundled opencode.json (plugins +
+  // permission policy). The deploy hook only writes it into the app container's
+  // read-only /app/.config/opencode, which this separate task container cannot
+  // use.
   //
   // A/B switch: set RCA_DISABLE_PLUGINS=1 to stage the config with an empty
   // `plugin` array. Running the same incident with and without plugins and
@@ -321,7 +327,14 @@ function prepareOpenCodeEnv() {
     console.error('Could not stage opencode.json config:', err.message);
   }
 
-  return { ...process.env, ...dirs, PATH: mergedPath };
+  // The Upsun CLI reads its API token from UPSUN_CLI_TOKEN, but the project
+  // variable is exposed to the container as UPSUN_API_TOKEN. Mirror it so the
+  // agent can shell out to `upsun ... --no-interaction` without an MCP server.
+  const cliToken =
+    process.env.UPSUN_CLI_TOKEN ?? process.env.UPSUN_API_TOKEN ?? '';
+  const tokenEnv = cliToken ? { UPSUN_CLI_TOKEN: cliToken } : {};
+
+  return { ...process.env, ...dirs, ...tokenEnv, PATH: mergedPath };
 }
 
 /**

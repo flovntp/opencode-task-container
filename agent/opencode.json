@@ -5,11 +5,9 @@
         "@tarquinen/opencode-dcp@latest",
         "opencode-snip@latest"
     ],
-    "mcp": {
-        "upsun": {
-            "type": "local",
-            "command": ["upsun-mcp"],
-            "enabled": true
-        }
+    "permission": {
+        "bash": "allow",
+        "edit": "allow",
+        "webfetch": "allow"
     }
 }
