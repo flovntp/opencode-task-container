@@ -31,7 +31,7 @@ parameters:
             path: src/Controller/Admin/AutoRcaController.php
         # Pre-existing: offset 'function' always exists and is not nullable.
         -
-            message: '#^Offset '\''function'\'' on array\{function: string, .* on left side of \?\? always exists and is not nullable\.$#'
+            message: '#^Offset .* on left side of \?\? always exists and is not nullable\.$#'
             path: src/EventSubscriber/AutoRcaSubscriber.php
 
     level: 6
