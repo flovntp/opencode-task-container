@@ -14,7 +14,7 @@
  * the prefix.
  */
 
-const { spawn, spawnSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -155,14 +155,6 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
       '   run. Output your findings as text only.',
     );
   }
-
-  tasks.push(
-    '',
-    'FINAL STEP (always perform this last, even if earlier steps failed): call the',
-    '`tokenscope` tool exactly once to record this session\'s token usage. Leave',
-    'sessionID unset and pass includeSubagents=true. Call the tool directly — do',
-    'NOT delegate it to a subagent and do NOT do anything else after it.',
-  );
 
   return [
     'You are an automated Root-Cause-Analysis (RCA) agent running inside an Upsun task container.',
@@ -456,6 +448,56 @@ function dumpOpenCodeLog(dataHome) {
   }
 }
 
+/**
+ * Find the id of the MAIN OpenCode session from the run log. OpenCode prints a
+ * `message=created id=ses_… parentID=…` line for every session it opens; the
+ * main session is the first one created (subagent/child sessions come later and
+ * carry a parentID). We pass this id to the TokenScope measurement pass so it
+ * reports the agent's real session rather than the throwaway measurement one.
+ */
+function extractMainSessionId(dataHome) {
+  try {
+    const logDir = path.join(dataHome, 'opencode', 'log');
+    const latest = fs
+      .readdirSync(logDir)
+      .map((f) => path.join(logDir, f))
+      .sort()
+      .pop();
+    if (!latest) return null;
+    const content = fs.readFileSync(latest, 'utf8');
+    const match = content.match(/\bid=(ses_[A-Za-z0-9]+)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deterministic token measurement. TokenScope only exposes a `tokenscope` TOOL
+ * (no CLI), so it must be invoked by an LLM turn. Relying on the main RCA agent
+ * to call it as a final step is unreliable — the agent can finish (or abort on a
+ * denied permission) before it gets there. Instead we run a second, dedicated
+ * single-purpose OpenCode session whose ONLY job is to call `tokenscope` for the
+ * main session's id. It reads the same XDG_DATA_HOME, so the prior session's
+ * stored step-finish telemetry is available, and writes token-usage-output.txt.
+ */
+function runTokenScopePass(env, cwd, sessionId) {
+  if (!sessionId) {
+    console.error('No main session id found in the OpenCode log; skipping the TokenScope measurement pass.');
+    return;
+  }
+  console.log(`Running TokenScope measurement pass for session ${sessionId}.`);
+  const prompt = [
+    `Call the \`tokenscope\` tool exactly once with sessionID="${sessionId}" and`,
+    'includeSubagents=true. Call the tool directly — do NOT delegate it to a',
+    'subagent. As soon as the tool returns, stop immediately and do nothing else.',
+  ].join('\n');
+  const result = spawnSync('opencode', ['run', prompt], { stdio: 'inherit', cwd, env });
+  if (result.error) {
+    console.error('TokenScope measurement pass failed to start:', result.error.message);
+  }
+}
+
 function runOpenCode(prompt, cwd) {
   const env = prepareOpenCodeEnv();
 
@@ -468,28 +510,26 @@ function runOpenCode(prompt, cwd) {
   console.log(`Launching opencode in ${cwd}`);
 
   // Non-interactive OpenCode run; inherit stdio so logs stream to the task output.
-  const child = spawn('opencode', ['run', prompt], {
-    stdio: 'inherit',
-    cwd,
-    env,
-  });
-
-  child.on('error', (err) => {
-    console.error('Failed to start opencode:', err.message);
+  const result = spawnSync('opencode', ['run', prompt], { stdio: 'inherit', cwd, env });
+  if (result.error) {
+    console.error('Failed to start opencode:', result.error.message);
     process.exit(1);
-  });
+  }
+  const code = result.status ?? 0;
+  console.log(`opencode exited with code ${code}`);
 
-  child.on('exit', (code) => {
-    console.log(`opencode exited with code ${code ?? 0}`);
-    // Always surface the OpenCode log: a clean exit can still mean "did nothing"
-    // (e.g. no PR opened), and the log is the only window into what it decided.
-    dumpOpenCodeLog(env.XDG_DATA_HOME);
-    // Authoritative token/cost measurement written by the tokenscope tool.
-    dumpTokenScopeReport(cwd);
-    // Best-effort fallback totals straight from the persisted message files.
-    summarizeTokens(env.XDG_DATA_HOME);
-    process.exit(code ?? 0);
-  });
+  // Always surface the OpenCode log: a clean exit can still mean "did nothing"
+  // (e.g. no PR opened), and the log is the only window into what it decided.
+  dumpOpenCodeLog(env.XDG_DATA_HOME);
+
+  // Deterministic measurement: invoke tokenscope for the main session in a
+  // dedicated second OpenCode turn, then print the report it wrote.
+  runTokenScopePass(env, cwd, extractMainSessionId(env.XDG_DATA_HOME));
+  dumpTokenScopeReport(cwd);
+
+  // Best-effort fallback totals straight from the persisted message files.
+  summarizeTokens(env.XDG_DATA_HOME);
+  process.exit(code);
 }
 
 const data = readIncident();
