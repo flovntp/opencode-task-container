@@ -1,5 +1,14 @@
 <?php
 
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
 namespace App\Controller;
 
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -59,8 +68,8 @@ final class TrafficSimulationController extends AbstractController
         // Optional live tuning (token already required): ?threshold= and ?seconds=
         // let us calibrate against the real PHP-FPM worker count without a redeploy.
         $threshold = max(1, $request->query->getInt('threshold', $this->maxConcurrency));
-        $duration  = min(25, max(1, $request->query->getInt('seconds', $this->processingSeconds)));
-        $runToken  = $this->resolveRunToken($request);
+        $duration = min(25, max(1, $request->query->getInt('seconds', $this->processingSeconds)));
+        $runToken = $this->resolveRunToken($request);
 
         $inFlight = (int) apcu_inc(self::INFLIGHT_KEY);
 
@@ -106,7 +115,7 @@ final class TrafficSimulationController extends AbstractController
      */
     private function process(int $inFlightAtStart, int $threshold, int $duration, string $runToken): Response
     {
-        $deadline  = microtime(true) + $duration;
+        $deadline = microtime(true) + $duration;
         $start = microtime(true);
         $iterations = 0;
         $peak = $inFlightAtStart;
@@ -134,12 +143,12 @@ final class TrafficSimulationController extends AbstractController
         }
 
         return new JsonResponse([
-            'status'           => 'ok',
+            'status' => 'ok',
             'processed_seconds' => $duration,
-            'iterations'       => $iterations,
+            'iterations' => $iterations,
             'peak_concurrency' => $peak,
-            'threshold'        => $threshold,
-            'run'              => $runToken,
+            'threshold' => $threshold,
+            'run' => $runToken,
         ]);
     }
 
@@ -152,13 +161,6 @@ final class TrafficSimulationController extends AbstractController
         // The run token (letters only) keeps the AutoRcaSubscriber signature
         // stable within a run but distinct across runs, so the pipeline is
         // re-triggerable while still spawning a single task per run.
-        throw new \RuntimeException(sprintf(
-            '[Auto-RCA test] Traffic overload on run %s: %d concurrent requests exceeded the threshold of %d '
-            .'during slow processing (elapsed %ss). The endpoint shed load by failing fast.',
-            $runToken,
-            $current,
-            $threshold,
-            $elapsed,
-        ));
+        throw new \RuntimeException(\sprintf('[Auto-RCA test] Traffic overload on run %s: %d concurrent requests exceeded the threshold of %d during slow processing (elapsed %ss). The endpoint shed load by failing fast.', $runToken, $current, $threshold, $elapsed));
     }
 }
