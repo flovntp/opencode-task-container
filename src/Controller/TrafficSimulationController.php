@@ -114,6 +114,11 @@ final class TrafficSimulationController extends AbstractController
 
         $this->assertWithinThreshold($inFlightAtStart, $threshold, 0.0, $runToken);
 
+        // Pre-flight check: if the in-flight count already exceeds the threshold
+        // before we start burning CPU, fail fast without wasting resources.
+        $current = (int) (apcu_fetch(self::INFLIGHT_KEY) ?: 0);
+        $this->assertWithinThreshold($current, $threshold, 0.0, $runToken);
+
         while (microtime(true) < $deadline) {
             // CPU-intensive busy work so the request shows up as CPU usage. The
             // result is chained into $accumulator so it cannot be optimised away.
