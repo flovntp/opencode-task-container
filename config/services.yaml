@@ -52,4 +52,7 @@ services:
             $upsunProjectId:     '%env(PLATFORM_PROJECT)%'
             $upsunEnvironmentId: '%env(PLATFORM_BRANCH)%'
             $upsunRcaTaskId:     '%env(UPSUN_RCA_TASK_ID)%'
+            # Persistent, shared-across-instances mount (source: storage) so the
+            # per-signature dedup survives restarts and works with >1 instance.
+            $sharedStateDir:     '%kernel.project_dir%/var/share/auto_rca'
             $isProduction:       '%env(bool:IS_PRODUCTION)%'

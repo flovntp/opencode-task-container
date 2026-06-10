@@ -16,7 +16,6 @@ parameters:
             message: '#^Function apcu_[a-z]+ not found\.$#'
             paths:
                 - src/Controller/TrafficSimulationController.php
-                - src/EventSubscriber/AutoRcaSubscriber.php
 
     level: 6
     paths:

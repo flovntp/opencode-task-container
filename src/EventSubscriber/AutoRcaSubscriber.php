@@ -3,7 +3,6 @@
 namespace App\EventSubscriber;
 
 use App\Github\GitHubAppTokenMinter;
-use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
@@ -23,11 +22,11 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
     public function __construct(
         private readonly UpsunClient $upsunClient,
         private readonly GitHubAppTokenMinter $tokenMinter,
-        private readonly CacheItemPoolInterface $cache,
         private readonly LoggerInterface $logger,
         private readonly string $upsunProjectId,
         private readonly string $upsunEnvironmentId,
         private readonly string $upsunRcaTaskId,
+        private readonly string $sharedStateDir,
         private readonly bool $isProduction,
     ) {
     }
@@ -66,45 +65,54 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
 
     private function shouldProcess(string $signature): bool
     {
-        if ($this->cache->getItem('auto_rca.done.'.$signature)->isHit()) {
+        // Dedup is keyed on the incident signature (class+file+line+normalized
+        // message), NOT on "is any RCA task running". Two *different* 500s have
+        // different signatures and therefore each get their own RCA agent;
+        // only repeats of the *same* incident are suppressed.
+        $claimDir = $this->sharedStateDir.'/claim/'.$signature;
+        $doneFile = $this->sharedStateDir.'/done/'.$signature;
+
+        // Identical incident already handled recently → don't open a duplicate PR.
+        if (is_file($doneFile) && (time() - (int) @filemtime($doneFile)) < self::CACHE_TTL) {
             $this->logger->debug('AutoRCA: already handled.', ['signature' => $signature]);
 
             return false;
         }
 
-        // Atomic single-flight guard: when hundreds of identical 500s arrive at
-        // once (e.g. under load), only the first caller wins the claim and
-        // spawns a task; all the others bail out. apcu_add is atomic across the
-        // PHP-FPM workers, which the previous read-modify-write attempts counter
-        // was not — hence the occasional duplicate spawns.
-        if (!$this->claimSpawn($signature)) {
-            $this->logger->debug('AutoRCA: spawn already claimed for this signature.', ['signature' => $signature]);
-
-            return false;
+        if (!is_dir($this->sharedStateDir.'/claim')) {
+            @mkdir($this->sharedStateDir.'/claim', 0775, true);
         }
 
-        return true;
+        // Atomic single-flight claim, shared across every instance and PHP-FPM
+        // worker via the persistent /var/share storage mount. mkdir() either
+        // creates the directory (we win) or fails with EEXIST (someone already
+        // owns the claim) — unlike the previous per-instance APCu/cache guard,
+        // which let duplicates through under load and across instances.
+        if (@mkdir($claimDir, 0775, true)) {
+            return true;
+        }
+
+        // The claim already exists. If it is older than the back-off window the
+        // previous attempt likely crashed mid-spawn, so allow a retry.
+        if ((time() - (int) @filemtime($claimDir)) >= self::CLAIM_TTL) {
+            @touch($claimDir);
+
+            return true;
+        }
+
+        $this->logger->debug('AutoRCA: spawn already claimed for this signature.', ['signature' => $signature]);
+
+        return false;
     }
 
-    private function claimSpawn(string $signature): bool
+    private function markHandled(string $signature): void
     {
-        $key = 'auto_rca.claim.'.$signature;
-
-        if (\function_exists('apcu_add') && apcu_enabled()) {
-            // Returns true only for the first concurrent caller.
-            return apcu_add($key, 1, self::CLAIM_TTL);
+        $doneDir = $this->sharedStateDir.'/done';
+        if (!is_dir($doneDir)) {
+            @mkdir($doneDir, 0775, true);
         }
 
-        // Fallback for environments without APCu (local/CLI): best-effort and
-        // non-atomic, but adequate outside the high-concurrency web path.
-        $item = $this->cache->getItem($key);
-        if ($item->isHit()) {
-            return false;
-        }
-
-        $this->cache->save($item->set(1)->expiresAfter(self::CLAIM_TTL));
-
-        return true;
+        @touch($doneDir.'/'.$signature);
     }
 
     private function spawnTaskContainer(\Throwable $throwable, ExceptionEvent $event, string $signature): void
@@ -152,11 +160,7 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
 
             // Mark the incident as handled so identical exceptions don't spawn
             // additional task containers (and open duplicate pull requests).
-            $this->cache->save(
-                $this->cache->getItem('auto_rca.done.'.$signature)
-                    ->set(true)
-                    ->expiresAfter(self::CACHE_TTL),
-            );
+            $this->markHandled($signature);
         } catch (ApiException $e) {
             $this->logger->error('AutoRCA: Upsun API rejected the task run.', $context + [
                 'http_status'   => $e->getCode(),
