@@ -20,6 +20,19 @@ use Upsun\UpsunConfig;
  */
 final class UpsunClientFactory
 {
+    /**
+     * Token minted for this request, cached so we mint exactly once.
+     *
+     * The container-local credential broker (localhost:8200) reliably serves
+     * the FIRST token request in a PHP request but rejects a second one in the
+     * same request (it surfaces as a `Syntax error for "…/oauth2/token"`
+     * transport error). create() mints the SDK client's bearer token first;
+     * callers forwarding the token to a task (AutoRcaSubscriber / controller)
+     * must reuse that same token rather than mint again. Caching also avoids a
+     * redundant round-trip.
+     */
+    private ?string $accessToken = null;
+
     public function __construct(
         private readonly HttpClientInterface $httpClient,
         private readonly string $tokenEndpoint = 'http://localhost:8200/oauth2/token',
@@ -56,6 +69,13 @@ final class UpsunClientFactory
      */
     public function mintAccessToken(?int $ttl = null): string
     {
+        // Reuse the token minted earlier this request (e.g. by create()). The
+        // broker rejects a second mint in the same request, so we must not call
+        // it again. A custom $ttl bypasses the cache for callers that need it.
+        if ($ttl === null && $this->accessToken !== null) {
+            return $this->accessToken;
+        }
+
         $response = $this->httpClient->request('POST', $this->tokenEndpoint, [
             'headers' => ['Content-Type' => 'application/x-www-form-urlencoded'],
             'body'    => http_build_query([
@@ -74,6 +94,10 @@ final class UpsunClientFactory
                 $this->tokenEndpoint,
                 $response->getStatusCode(),
             ));
+        }
+
+        if ($ttl === null) {
+            $this->accessToken = $token;
         }
 
         return $token;
