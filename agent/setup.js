@@ -2,124 +2,41 @@
 'use strict';
 
 /**
- * Mint a short-lived Upsun access token BEFORE the agent runs.
+ * Retrieve the short-lived Upsun token forwarded by the app, BEFORE the agent runs.
  *
- * The static UPSUN_API_TOKEN has been removed from the project, so nothing in
- * the container holds a long-lived credential anymore. The remote Upsun MCP
- * server (https://mcp.upsun.com/mcp) lives OUTSIDE the container and therefore
- * needs an explicit bearer token in its request header — it cannot rely on the
- * container's ambient auth the way the local `upsun` CLI can.
+ * The static UPSUN_API_TOKEN was removed from the project, and the container-local
+ * credential broker (localhost:8200) exists ONLY in the app/web container — it is
+ * unreachable from the task container at BOTH build and runtime (confirmed:
+ * ECONNREFUSED on 127.0.0.1 and localhost). So the task cannot mint its own token.
  *
- * This script obtains a short-lived OAuth2 access token from the container-local
- * credential service on http://localhost:8200 and hands it to agent.js through a
- * file. agent.js then:
- *   - injects the token into the MCP header of the staged opencode.json
- *     (the "envsubst" step, done in JS so it works against the writable /tmp
+ * Instead the app mints a short-lived access token (it CAN reach 8200) and forwards
+ * it as a task variable named RCA_UPSUN_TOKEN — deliberately NOT `UPSUN_CLI_TOKEN`:
+ * Upsun reserves the `UPSUN_`/`PLATFORM_` env prefixes and strips such variables, so
+ * a forwarded `UPSUN_CLI_TOKEN` never reaches the task process.
+ *
+ * This script writes that token to a file; agent.js then:
+ *   - injects it into the MCP header of the staged opencode.json (the writable /tmp
  *     config OpenCode actually reads — /app is read-only in the task container);
- *   - mirrors it into UPSUN_CLI_TOKEN so the `upsun` CLI is authenticated too.
+ *   - mirrors it into UPSUN_CLI_TOKEN, an OS-level env var for the `upsun` CLI child
+ *     process (set inside the container, so NOT subject to Upsun's prefix filtering).
  *
- * Equivalent shell:
- *   token=$(curl http://localhost:8200/oauth2/token \
- *             -d grant_type=client_credentials -d x-token-ttl=3600 \
- *           | jq -r .access_token)
- *
- * Best-effort: if the token cannot be minted we still exit 0 so the agent runs
- * (the CLI can fall back to the container's env:view authorisation).
+ * Best-effort: if no token was forwarded we still exit 0 so the agent runs (the CLI
+ * falls back to the container's env:view authorisation).
  */
 
 const fs = require('node:fs');
 
-// Candidate token endpoints, tried in order. UPSUN_TOKEN_ENDPOINT overrides the
-// list entirely. We try 127.0.0.1 BEFORE localhost on purpose: Node's fetch
-// (undici) resolves `localhost` to IPv6 `::1` first, but the container-local
-// credential broker only listens on IPv4 127.0.0.1 — so `localhost` yields
-// `fetch failed` (ECONNREFUSED on ::1) while 127.0.0.1 connects. PHP/curl in the
-// app container prefers IPv4, which is why the app could already mint a token.
-const TOKEN_ENDPOINTS = process.env.UPSUN_TOKEN_ENDPOINT
-  ? [process.env.UPSUN_TOKEN_ENDPOINT]
-  : [
-      'http://127.0.0.1:8200/oauth2/token',
-      'http://localhost:8200/oauth2/token',
-    ];
+// File agent.js reads the Upsun token from.
 const TOKEN_FILE = process.env.UPSUN_MCP_TOKEN_FILE || '/tmp/upsun-mcp-token';
-// Default TTL covers the whole task run (the task timeout is 3600s) so the MCP
-// token does not expire mid-analysis.
-const TOKEN_TTL = process.env.UPSUN_MCP_TOKEN_TTL || '3600';
 
-async function mintFrom(endpoint) {
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    'x-token-ttl': TOKEN_TTL,
-  });
+function main() {
+  // The app forwards a short-lived Upsun access token as RCA_UPSUN_TOKEN (a
+  // non-reserved name; UPSUN_*-prefixed task variables are stripped by Upsun).
+  const forwarded = (process.env.RCA_UPSUN_TOKEN || '').trim();
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const data = await res.json();
-  const token = data && data.access_token;
-  if (!token) {
-    throw new Error('response did not contain an access_token');
-  }
-  return token;
-}
-
-// Diagnostic: probe the localhost:8200 credential broker at RUNTIME. The broker
-// is known to be absent during the build hook; this tells us whether it exists
-// while the task container is actually running. Best-effort and side-effect free
-// — it never changes which token we ultimately use, it only logs reachability.
-async function probeBrokerAtRuntime() {
-  console.log('[setup] === 8200 RUNTIME PROBE ===');
-  for (const endpoint of TOKEN_ENDPOINTS) {
-    try {
-      const token = await mintFrom(endpoint);
-      console.log(
-        `[setup] 8200 RUNTIME PROBE: reachable via ${endpoint} (got access_token, len=${token.length})`,
-      );
-    } catch (err) {
-      const cause = err.cause && err.cause.code ? ` (${err.cause.code})` : '';
-      console.error(
-        `[setup] 8200 RUNTIME PROBE: NOT reachable via ${endpoint}: ${err.message}${cause}`,
-      );
-    }
-  }
-  console.log('[setup] === /8200 RUNTIME PROBE ===');
-}
-
-async function main() {
-  await probeBrokerAtRuntime();
-
-  // The app container forwards a short-lived token as UPSUN_CLI_TOKEN (the task
-  // container has no localhost:8200 broker of its own). When present, use it
-  // directly and skip the mint — agent.js reads this file for the MCP header.
-  const forwarded = (process.env.UPSUN_CLI_TOKEN || '').trim();
-  if (forwarded) {
-    fs.writeFileSync(TOKEN_FILE, forwarded, { mode: 0o600 });
-    console.log(`[setup] Using forwarded UPSUN_CLI_TOKEN -> ${TOKEN_FILE}`);
-    return;
-  }
-
-  let token;
-  for (const endpoint of TOKEN_ENDPOINTS) {
-    try {
-      token = await mintFrom(endpoint);
-      console.log(`[setup] Minted token via ${endpoint}`);
-      break;
-    } catch (err) {
-      // err.cause?.code surfaces the real reason (ECONNREFUSED / ENOTFOUND / …)
-      // behind a generic "fetch failed".
-      const cause = err.cause && err.cause.code ? ` (${err.cause.code})` : '';
-      console.error(`[setup] mint via ${endpoint} failed: ${err.message}${cause}`);
-    }
-  }
-
-  if (!token) {
+  if (!forwarded) {
     console.error(
-      '[setup] Continuing without an MCP token (the CLI will rely on the container auth).',
+      '[setup] No RCA_UPSUN_TOKEN forwarded; continuing without an Upsun token (CLI relies on container auth).',
     );
     // Do NOT fail: the task command chains `setup.js && agent.js`, so a non-zero
     // exit would skip the agent entirely.
@@ -127,10 +44,8 @@ async function main() {
     return;
   }
 
-  fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
-  console.log(
-    `[setup] Minted short-lived Upsun token (ttl=${TOKEN_TTL}s) -> ${TOKEN_FILE}`,
-  );
+  fs.writeFileSync(TOKEN_FILE, forwarded, { mode: 0o600 });
+  console.log(`[setup] Wrote forwarded Upsun token (RCA_UPSUN_TOKEN) -> ${TOKEN_FILE}`);
 }
 
 main();

@@ -31,7 +31,12 @@ function readUpsunToken() {
   } catch {
     /* no minted token: fall back to env */
   }
-  return process.env.UPSUN_CLI_TOKEN || process.env.UPSUN_API_TOKEN || '';
+  return (
+    process.env.RCA_UPSUN_TOKEN ||
+    process.env.UPSUN_CLI_TOKEN ||
+    process.env.UPSUN_API_TOKEN ||
+    ''
+  );
 }
 
 // A/B switch: when truthy, OpenCode runs with no token-optimisation plugins so

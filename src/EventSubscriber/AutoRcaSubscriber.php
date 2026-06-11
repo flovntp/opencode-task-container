@@ -151,8 +151,13 @@ final class AutoRcaSubscriber implements EventSubscriberInterface
         // 8200) and forward it: the agent uses it for the remote Upsun MCP
         // server header and mirrors it into the `upsun` CLI. Best-effort: the
         // task still runs (with reduced Upsun context) if minting fails.
+        //
+        // Forward it as RCA_UPSUN_TOKEN, NOT UPSUN_CLI_TOKEN: Upsun reserves the
+        // `UPSUN_`/`PLATFORM_` env prefixes and strips task variables using them,
+        // so a forwarded `UPSUN_CLI_TOKEN` never reaches the task (setup.js maps
+        // RCA_UPSUN_TOKEN back to the CLI's UPSUN_CLI_TOKEN inside the container).
         try {
-            $env['UPSUN_CLI_TOKEN'] = $this->upsunClientFactory->mintAccessToken();
+            $env['RCA_UPSUN_TOKEN'] = $this->upsunClientFactory->mintAccessToken();
         } catch (\Throwable $e) {
             $this->logger->warning('AutoRCA: could not mint a task Upsun token.', $context + [
                 'error' => $e->getMessage(),

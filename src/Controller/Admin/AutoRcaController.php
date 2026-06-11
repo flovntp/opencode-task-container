@@ -158,8 +158,10 @@ final class AutoRcaController extends AbstractController
 
         // The task container cannot mint its own token (no localhost:8200 there);
         // forward a short-lived one minted here for the MCP header + `upsun` CLI.
+        // Use RCA_UPSUN_TOKEN: Upsun strips `UPSUN_`/`PLATFORM_`-prefixed task
+        // variables, so `UPSUN_CLI_TOKEN` would never reach the task.
         try {
-            $env['UPSUN_CLI_TOKEN'] = $upsunClientFactory->mintAccessToken();
+            $env['RCA_UPSUN_TOKEN'] = $upsunClientFactory->mintAccessToken();
         } catch (\Throwable) {
             // Non-fatal: the task runs with reduced Upsun context.
         }
