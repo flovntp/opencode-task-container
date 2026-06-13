@@ -4,7 +4,6 @@ namespace App\Controller\Admin;
 
 use App\Entity\User;
 use App\Github\GitHubAppTokenMinter;
-use App\Upsun\UpsunClientFactory;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -63,7 +62,7 @@ final class AutoRcaController extends AbstractController
     }
 
     #[Route('/trigger', name: 'admin_auto_rca_trigger', methods: ['POST'])]
-    public function triggerDirectly(Request $request, UpsunClient $upsunClient, GitHubAppTokenMinter $tokenMinter, UpsunClientFactory $upsunClientFactory): RedirectResponse
+    public function triggerDirectly(Request $request, UpsunClient $upsunClient, GitHubAppTokenMinter $tokenMinter): RedirectResponse
     {
         $this->validateCsrf('auto_rca_trigger', $request);
 
@@ -76,7 +75,7 @@ final class AutoRcaController extends AbstractController
                 projectId: $projectId,
                 environmentId: $environmentId,
                 taskId: $taskId,
-                variables: $this->buildIncidentVariables($request, $tokenMinter, $upsunClientFactory),
+                variables: $this->buildIncidentVariables($request, $tokenMinter),
             );
 
             $this->addFlash('success', sprintf(
@@ -116,7 +115,7 @@ final class AutoRcaController extends AbstractController
         return getenv($name) ?: $default;
     }
 
-    private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter, UpsunClientFactory $upsunClientFactory): array
+    private function buildIncidentVariables(Request $request, GitHubAppTokenMinter $tokenMinter): array
     {
         $signature = hash('sha256', 'admin-test-'.time());
 
@@ -154,16 +153,6 @@ final class AutoRcaController extends AbstractController
             // GitHub App server-to-server token is rejected by that endpoint.
             $env['GH_PR_TOKEN'] = $github['token'];
             $env['GITHUB_REPO'] = $github['repository'];
-        }
-
-        // The task container cannot mint its own token (no localhost:8200 there);
-        // forward a short-lived one minted here for the MCP header + `upsun` CLI.
-        // Use RCA_UPSUN_TOKEN: Upsun strips `UPSUN_`/`PLATFORM_`-prefixed task
-        // variables, so `UPSUN_CLI_TOKEN` would never reach the task.
-        try {
-            $env['RCA_UPSUN_TOKEN'] = $upsunClientFactory->mintAccessToken();
-        } catch (\Throwable) {
-            // Non-fatal: the task runs with reduced Upsun context.
         }
 
         return ['env' => $env];

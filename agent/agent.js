@@ -18,46 +18,13 @@ const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Short-lived Upsun access token minted by setup.js (run before this script).
-// It authenticates BOTH the remote Upsun MCP server (injected into the staged
-// opencode.json header) and the local `upsun` CLI (mirrored into
-// UPSUN_CLI_TOKEN). Falls back to the legacy env tokens when absent.
-const MCP_TOKEN_FILE = process.env.UPSUN_MCP_TOKEN_FILE || '/tmp/upsun-mcp-token';
-
+// The `upsun` CLI and the remote Upsun MCP server both authenticate with a real
+// Upsun API token, provided to the task container through the UPSUN_API_TOKEN
+// environment variable. A short-lived OAuth token does NOT authenticate the CLI;
+// a real API token does. UPSUN_CLI_TOKEN is accepted as an alias.
 function readUpsunToken() {
-  try {
-    const minted = fs.readFileSync(MCP_TOKEN_FILE, 'utf8').trim();
-    if (minted) return minted;
-  } catch {
-    /* no minted token: fall back to env */
-  }
-  return (
-    process.env.RCA_UPSUN_TOKEN ||
-    process.env.UPSUN_CLI_TOKEN ||
-    process.env.UPSUN_API_TOKEN ||
-    ''
-  );
+  return process.env.UPSUN_API_TOKEN || process.env.UPSUN_CLI_TOKEN || '';
 }
-
-// A/B switch: when truthy, OpenCode runs with no token-optimisation plugins so
-// the resulting token summary can be compared against a normal (plugins ON) run.
-const PLUGINS_DISABLED = /^(1|true|yes|on)$/i.test(
-  process.env.RCA_DISABLE_PLUGINS ?? '',
-);
-
-// Measurement switch: when truthy, the agent only analyses (no branch/commit/
-// push/PR). Keeps A/B runs deterministic and avoids creating branches/PRs.
-const ANALYSIS_ONLY = /^(1|true|yes|on)$/i.test(
-  process.env.RCA_ANALYSIS_ONLY ?? '',
-);
-
-// TokenScope is the measurement instrument: it reads OpenCode's stored
-// `step-finish` telemetry and writes an authoritative per-session token/cost
-// report (token-usage-output.txt). It is NOT a token-optimisation plugin, so it
-// is loaded on BOTH the plugins-ON and plugins-OFF (baseline) runs — otherwise
-// there would be nothing to compare. https://github.com/ramtinJ95/opencode-tokenscope
-const TOKENSCOPE_PLUGIN = '@ramtinj95/opencode-tokenscope@latest';
-const TOKENSCOPE_REPORT = 'token-usage-output.txt';
 
 function readIncident() {
   let raw = process.env.INCIDENT_JSON;
@@ -126,11 +93,11 @@ function buildPrompt({ incident: rawIncident, signature }, workspace) {
     '2. Gather runtime context from Upsun. PREFER THE "upsun" MCP SERVER: whenever',
     '   an MCP tool exists for what you need (e.g. list activities, get the',
     '   environment info, deployment state, environment logs, routes), call that',
-    '   MCP tool — it is authenticated with a short-lived token. Pass the project',
+    '   MCP tool — it is authenticated with the Upsun API token. Pass the project',
     '   id "$PLATFORM_PROJECT" and the environment "$PLATFORM_BRANCH" as arguments.',
     '   Only fall back to the "upsun" CLI in bash for what the MCP does NOT expose.',
     '   In particular, metrics and resources have no MCP tool, so use the CLI,',
-    '   non-interactively (it shares the same short-lived token):',
+    '   non-interactively (it shares the same API token):',
     '       upsun metrics:all -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
     '       upsun resources:get -p "$PLATFORM_PROJECT" -e "$PLATFORM_BRANCH" --no-interaction',
     '   Use this evidence (environment state from MCP, metrics + resources from the',
@@ -241,23 +208,6 @@ function prepareWorkspace() {
     return fallback;
   }
 
-  if (ANALYSIS_ONLY) {
-    console.log('RCA_ANALYSIS_ONLY set: cloning for analysis only (no branch/commit/PR).');
-    fs.rmSync('/tmp/work', { recursive: true, force: true });
-    const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
-    const authHeader = `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`;
-    const clone = git([
-      '-c', authHeader,
-      'clone', '--depth', '50',
-      `https://github.com/${repo}.git`, '/tmp/work',
-    ]);
-    if (clone.status !== 0 || !fs.existsSync(path.join('/tmp/work', '.git'))) {
-      console.error(`git clone failed (status ${clone.status}); falling back to /app.`);
-      return fallback;
-    }
-    console.log(`Cloned ${repo} into /tmp/work (analysis only).`);
-    return { cwd: '/tmp/work', repo, baseBranch, canOpenPr: false };
-  }
   console.log(`Preparing workspace: cloning ${repo} (base ${baseBranch}) into /tmp/work.`);
 
   const workdir = '/tmp/work';
@@ -325,11 +275,7 @@ function prepareOpenCodeEnv() {
   // Seed the writable config dir with the bundled opencode.json (plugins +
   // permission policy). The deploy hook only writes it into the app container's
   // read-only /app/.config/opencode, which this separate task container cannot
-  // use.
-  //
-  // A/B switch: set RCA_DISABLE_PLUGINS=1 to stage the config with an empty
-  // `plugin` array. Running the same incident with and without plugins and
-  // comparing the token summaries (see summarizeTokens) gives a real delta.
+  // use. The token-optimisation plugins ship in that config and are always on.
   const upsunToken = readUpsunToken();
   try {
     const configDir = path.join(configHome, 'opencode');
@@ -337,20 +283,8 @@ function prepareOpenCodeEnv() {
     const config = JSON.parse(
       fs.readFileSync(path.join(__dirname, 'opencode.json'), 'utf8'),
     );
-    // Optimisation plugins (openslimedit / opencode-dcp / opencode-snip) come
-    // from the bundled config and are toggled by the A/B switch. TokenScope is
-    // always appended so both runs produce a comparable token report.
-    const optimisationPlugins = (Array.isArray(config.plugin) ? config.plugin : [])
-      .filter((p) => !String(p).startsWith('@ramtinj95/opencode-tokenscope'));
-    if (PLUGINS_DISABLED) {
-      config.plugin = [TOKENSCOPE_PLUGIN];
-      console.log('RCA_DISABLE_PLUGINS set: optimisation plugins OFF (baseline); tokenscope kept for measurement.');
-    } else {
-      config.plugin = [...optimisationPlugins, TOKENSCOPE_PLUGIN];
-      console.log(`Running with plugins ON: ${optimisationPlugins.join(', ')} (+ tokenscope)`);
-    }
-    // Inject the short-lived Upsun token into the remote MCP header. This is the
-    // JS equivalent of `envsubst < opencode.json`: the bundled config ships a
+    // Inject the Upsun API token into the remote MCP header. This is the JS
+    // equivalent of `envsubst < opencode.json`: the bundled config ships a
     // ${UPSUN_CLI_TOKEN} placeholder, but OpenCode does not expand env vars in
     // headers, so we substitute the real value here before staging the config.
     if (upsunToken && config.mcp?.upsun?.headers) {
@@ -364,10 +298,9 @@ function prepareOpenCodeEnv() {
     console.error('Could not stage opencode.json config:', err.message);
   }
 
-  // The Upsun CLI reads its API token from UPSUN_CLI_TOKEN. The static
-  // UPSUN_API_TOKEN was removed from the project, so reuse the same short-lived
-  // token minted by setup.js for the CLI too (metrics/resources go through the
-  // CLI). Falls back to any legacy env token if no token was minted.
+  // The `upsun` CLI reads its API token from UPSUN_CLI_TOKEN. Mirror the
+  // UPSUN_API_TOKEN provided to the container into it (a short-lived OAuth token
+  // does not authenticate the CLI; a real API token does).
   const tokenEnv = upsunToken ? { UPSUN_CLI_TOKEN: upsunToken } : {};
 
   return { ...process.env, ...dirs, ...tokenEnv, PATH: mergedPath };
@@ -396,8 +329,8 @@ function walkJson(dir, out = []) {
 
 /**
  * Sum the per-message token usage and cost OpenCode persists under its data
- * dir, and print a summary. This is the measurable signal for whether the
- * token-optimisation plugins actually reduced usage (compare ON vs OFF runs).
+ * dir, and print a summary so the token footprint of each RCA run is visible in
+ * the task logs.
  */
 function summarizeTokens(dataHome) {
   try {
@@ -437,9 +370,7 @@ function summarizeTokens(dataHome) {
       totals.cost += Number(info.cost) || 0;
     }
 
-    const mode = PLUGINS_DISABLED ? 'OFF (baseline)' : 'ON';
     console.error('=== Token usage summary ===');
-    console.error(`plugins:           ${mode}`);
     console.error(`assistant messages: ${totals.messages}`);
     console.error(`tokens.input:       ${totals.input}`);
     console.error(`tokens.output:      ${totals.output}`);
@@ -457,27 +388,9 @@ function summarizeTokens(dataHome) {
 }
 
 /**
- * Print the TokenScope report the agent wrote at the end of the session. This
- * is the authoritative token/cost measurement (it parses OpenCode's stored
- * step-finish telemetry), unlike summarizeTokens which is a best-effort
- * fallback over the raw message files.
+ * Print the latest OpenCode run log. A clean exit can still mean "did nothing"
+ * (e.g. no PR opened), and the log is the only window into what it decided.
  */
-function dumpTokenScopeReport(cwd) {
-  try {
-    const file = path.join(cwd, TOKENSCOPE_REPORT);
-    if (!fs.existsSync(file)) {
-      console.error(`TokenScope report not found at ${file} (the agent may not have called the tokenscope tool).`);
-      return;
-    }
-    const mode = PLUGINS_DISABLED ? 'OFF (baseline)' : 'ON';
-    console.error(`=== TokenScope report (plugins: ${mode}) ===`);
-    console.error(fs.readFileSync(file, 'utf8'));
-    console.error('=== end TokenScope report ===');
-  } catch (err) {
-    console.error('Could not read TokenScope report:', err.message);
-  }
-}
-
 function dumpOpenCodeLog(dataHome) {
   try {
     const logDir = path.join(dataHome, 'opencode', 'log');
@@ -494,89 +407,6 @@ function dumpOpenCodeLog(dataHome) {
     }
   } catch (err) {
     console.error('Could not read opencode log:', err.message);
-  }
-}
-
-/**
- * Find the id of the MAIN OpenCode session for this run. We need it to point the
- * TokenScope measurement pass at the agent's real session rather than the
- * throwaway measurement one.
- *
- * Primary source: OpenCode's persisted session metadata. Every session is stored
- * as a JSON file whose `id` starts with "ses_"; the main session is the one
- * without a `parentID` (subagent/child sessions carry their parent's id). When
- * several exist we take the earliest-created one. We fall back to scraping the
- * run log (`message=created id=ses_…`) when storage can't be read — the log file
- * is sometimes empty, so storage is preferred.
- */
-function extractMainSessionId(dataHome) {
-  const root = path.join(dataHome, 'opencode');
-
-  // 1) Persisted session metadata (source of truth).
-  try {
-    const sessions = [];
-    for (const file of walkJson(root)) {
-      let parsed;
-      try {
-        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-      } catch {
-        continue;
-      }
-      const info = parsed && parsed.info ? parsed.info : parsed;
-      if (!info || typeof info !== 'object') continue;
-      if (typeof info.id !== 'string' || !info.id.startsWith('ses_')) continue;
-      const created = Number(info.time && info.time.created) || 0;
-      sessions.push({ id: info.id, parentID: info.parentID, created });
-    }
-    const mains = sessions.filter((s) => !s.parentID);
-    const pick = (mains.length ? mains : sessions).sort((a, b) => a.created - b.created)[0];
-    if (pick) return pick.id;
-  } catch {
-    /* fall through to log scraping */
-  }
-
-  // 2) Fallback: scrape the run log.
-  try {
-    const logDir = path.join(root, 'log');
-    const files = fs
-      .readdirSync(logDir)
-      .map((f) => path.join(logDir, f))
-      .sort();
-    for (const file of files.reverse()) {
-      const content = fs.readFileSync(file, 'utf8');
-      const match = content.match(/\bid=(ses_[A-Za-z0-9]+)/);
-      if (match) return match[1];
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return null;
-}
-
-/**
- * Deterministic token measurement. TokenScope only exposes a `tokenscope` TOOL
- * (no CLI), so it must be invoked by an LLM turn. Relying on the main RCA agent
- * to call it as a final step is unreliable — the agent can finish (or abort on a
- * denied permission) before it gets there. Instead we run a second, dedicated
- * single-purpose OpenCode session whose ONLY job is to call `tokenscope` for the
- * main session's id. It reads the same XDG_DATA_HOME, so the prior session's
- * stored step-finish telemetry is available, and writes token-usage-output.txt.
- */
-function runTokenScopePass(env, cwd, sessionId) {
-  if (!sessionId) {
-    console.error('No main session id found in the OpenCode log; skipping the TokenScope measurement pass.');
-    return;
-  }
-  console.log(`Running TokenScope measurement pass for session ${sessionId}.`);
-  const prompt = [
-    `Call the \`tokenscope\` tool exactly once with sessionID="${sessionId}" and`,
-    'includeSubagents=true. Call the tool directly — do NOT delegate it to a',
-    'subagent. As soon as the tool returns, stop immediately and do nothing else.',
-  ].join('\n');
-  const result = spawnSync('opencode', ['run', prompt], { stdio: 'inherit', cwd, env });
-  if (result.error) {
-    console.error('TokenScope measurement pass failed to start:', result.error.message);
   }
 }
 
@@ -604,20 +434,14 @@ function runOpenCode(prompt, cwd) {
   // (e.g. no PR opened), and the log is the only window into what it decided.
   dumpOpenCodeLog(env.XDG_DATA_HOME);
 
-  // Deterministic measurement: invoke tokenscope for the main session in a
-  // dedicated second OpenCode turn, then print the report it wrote.
-  runTokenScopePass(env, cwd, extractMainSessionId(env.XDG_DATA_HOME));
-  dumpTokenScopeReport(cwd);
-
-  // Best-effort fallback totals straight from the persisted message files.
+  // Print the token footprint of this run (parsed from OpenCode's persisted
+  // message files) so usage stays visible in the task logs.
   summarizeTokens(env.XDG_DATA_HOME);
 
   // Do NOT call process.exit() here. stdout/stderr are pipes to the Upsun task
-  // log collector, and a hard exit drops whatever is still buffered — which
-  // truncated the TokenScope report and token summary (the last writes before
-  // the exit) from the task log. Setting exitCode lets Node drain both streams
-  // and then exit naturally; spawnSync is synchronous so nothing keeps the
-  // event loop alive afterwards.
+  // log collector, and a hard exit drops whatever is still buffered. Setting
+  // exitCode lets Node drain both streams and then exit naturally (spawnSync is
+  // synchronous so nothing keeps the event loop alive afterwards).
   process.exitCode = code;
 }
 

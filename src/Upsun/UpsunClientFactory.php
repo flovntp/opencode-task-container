@@ -26,10 +26,7 @@ final class UpsunClientFactory
      * The container-local credential broker (localhost:8200) reliably serves
      * the FIRST token request in a PHP request but rejects a second one in the
      * same request (it surfaces as a `Syntax error for "…/oauth2/token"`
-     * transport error). create() mints the SDK client's bearer token first;
-     * callers forwarding the token to a task (AutoRcaSubscriber / controller)
-     * must reuse that same token rather than mint again. Caching also avoids a
-     * redundant round-trip.
+     * transport error). Caching the token avoids that and a redundant round-trip.
      */
     private ?string $accessToken = null;
 
@@ -61,11 +58,8 @@ final class UpsunClientFactory
 
     /**
      * Exchange the container's ambient credentials for a short-lived access
-     * token via the local credential service (localhost:8200).
-     *
-     * Public so callers (e.g. the Auto-RCA subscriber) can mint a token to
-     * forward to a task container, which has NO localhost:8200 broker of its own
-     * and therefore cannot mint one itself.
+     * token via the local credential service (localhost:8200). Used by create()
+     * to authenticate the SDK client that spawns the RCA task container.
      */
     public function mintAccessToken(?int $ttl = null): string
     {
