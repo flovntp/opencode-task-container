@@ -2,6 +2,7 @@
 
 namespace App\Upsun;
 
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Upsun\UpsunClient;
 use Upsun\UpsunConfig;
@@ -20,6 +21,9 @@ use Upsun\UpsunConfig;
  */
 final class UpsunClientFactory
 {
+    private const int MAX_RETRIES = 3;
+    private const int RETRY_DELAY_MS = 200;
+
     /**
      * Token minted for this request, cached so we mint exactly once.
      *
@@ -70,30 +74,71 @@ final class UpsunClientFactory
             return $this->accessToken;
         }
 
-        $response = $this->httpClient->request('POST', $this->tokenEndpoint, [
-            'headers' => ['Content-Type' => 'application/x-www-form-urlencoded'],
-            'body'    => http_build_query([
-                'grant_type'  => 'client_credentials',
-                'x-token-ttl' => (string) ($ttl ?? $this->tokenTtl),
-            ]),
-        ]);
+        $maxRetries = $ttl === null ? self::MAX_RETRIES : 0;
 
-        // Do not let toArray() throw on a non-2xx: surface a clear error below.
-        $data  = $response->toArray(false);
-        $token = $data['access_token'] ?? null;
+        for ($attempt = 0; $attempt <= $maxRetries; ++$attempt) {
+            try {
+                $response = $this->httpClient->request('POST', $this->tokenEndpoint, [
+                    'headers' => ['Content-Type' => 'application/x-www-form-urlencoded'],
+                    'body'    => http_build_query([
+                        'grant_type'  => 'client_credentials',
+                        'x-token-ttl' => (string) ($ttl ?? $this->tokenTtl),
+                    ]),
+                ]);
 
-        if (!\is_string($token) || $token === '') {
-            throw new \RuntimeException(sprintf(
-                'Could not mint an Upsun access token from %s (HTTP %d).',
-                $this->tokenEndpoint,
-                $response->getStatusCode(),
-            ));
+                $statusCode = $response->getStatusCode();
+                $content    = $response->getContent(false);
+
+                // The credential broker may return HTTP 429 (rate-limited) with
+                // an empty body. Retry after a short delay.
+                if ($statusCode === 429 && $attempt < $maxRetries) {
+                    usleep(self::RETRY_DELAY_MS * 1000 * ($attempt + 1));
+                    continue;
+                }
+
+                $data = json_decode($content, true);
+
+                if (!\is_array($data)) {
+                    throw new \RuntimeException(sprintf(
+                        'Could not mint an Upsun access token from %s (HTTP %d): invalid JSON response.',
+                        $this->tokenEndpoint,
+                        $statusCode,
+                    ));
+                }
+
+                $token = $data['access_token'] ?? null;
+
+                if (!\is_string($token) || $token === '') {
+                    throw new \RuntimeException(sprintf(
+                        'Could not mint an Upsun access token from %s (HTTP %d).',
+                        $this->tokenEndpoint,
+                        $statusCode,
+                    ));
+                }
+
+                if ($ttl === null) {
+                    $this->accessToken = $token;
+                }
+
+                return $token;
+            } catch (TransportExceptionInterface $e) {
+                if ($attempt >= $maxRetries) {
+                    throw new \RuntimeException(sprintf(
+                        'Could not reach the credential service at %s after %d attempts: %s',
+                        $this->tokenEndpoint,
+                        $maxRetries + 1,
+                        $e->getMessage(),
+                    ));
+                }
+
+                usleep(self::RETRY_DELAY_MS * 1000 * ($attempt + 1));
+            }
         }
 
-        if ($ttl === null) {
-            $this->accessToken = $token;
-        }
-
-        return $token;
+        throw new \RuntimeException(sprintf(
+            'Could not mint an Upsun access token from %s after %d attempts.',
+            $this->tokenEndpoint,
+            $maxRetries + 1,
+        ));
     }
 }
