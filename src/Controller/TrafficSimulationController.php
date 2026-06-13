@@ -112,7 +112,9 @@ final class TrafficSimulationController extends AbstractController
         $peak = $inFlightAtStart;
         $accumulator = 'seed';
 
-        $this->assertWithinThreshold($inFlightAtStart, $threshold, 0.0, $runToken);
+        // Subtract 1 because $inFlightAtStart already includes our own
+        // increment. The threshold governs *other* concurrent requests.
+        $this->assertWithinThreshold($inFlightAtStart - 1, $threshold, 0.0, $runToken);
 
         while (microtime(true) < $deadline) {
             // CPU-intensive busy work so the request shows up as CPU usage. The
@@ -125,7 +127,10 @@ final class TrafficSimulationController extends AbstractController
             $current = (int) (apcu_fetch(self::INFLIGHT_KEY) ?: 0);
             $peak = max($peak, $current);
 
-            $this->assertWithinThreshold($current, $threshold, round(microtime(true) - $start, 2), $runToken);
+            // Subtract 1 to exclude our own in-flight slot: the threshold
+            // limits *other* concurrent requests, avoiding a race where
+            // two arrivals both see each other's increment and fail.
+            $this->assertWithinThreshold($current - 1, $threshold, round(microtime(true) - $start, 2), $runToken);
         }
 
         return new JsonResponse([
